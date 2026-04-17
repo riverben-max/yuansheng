@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.qingbird.mapper.DashboardMapper">
+
+    <!-- 今日销售额 -->
+    <select id="sumTodaySales" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(sales_amount), 0)
+        FROM biz_spider_data
+        WHERE DATE(record_date) = CURDATE()
+    </select>
+
+    <!-- 近30天销售额 -->
+    <select id="sumMonthSales" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(sales_amount), 0)
+        FROM biz_spider_data
+        WHERE record_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+    </select>
+
+    <!-- 在职员工数 -->
+    <select id="countActiveEmployees" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM biz_employee WHERE status = '0'
+    </select>
+
+    <!-- 运营店铺数（有采集记录的不重复店铺） -->
+    <select id="countActiveShops" resultType="java.lang.Integer">
+        SELECT COUNT(DISTINCT shop_id) FROM biz_spider_data
+    </select>
+
+    <!-- 今日采集条数 -->
+    <select id="countTodayUploads" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM biz_spider_data
+        WHERE DATE(record_date) = CURDATE()
+    </select>
+
+    <!-- 今日接待人数汇总 -->
+    <select id="sumTodayConsultation" resultType="java.lang.Integer">
+        SELECT COALESCE(SUM(consultation_count), 0)
+        FROM biz_spider_data
+        WHERE DATE(record_date) = CURDATE()
+    </select>
+
+    <!-- 近30天接待人数总量 -->
+    <select id="sumMonthConsultation" resultType="java.lang.Integer">
+        SELECT COALESCE(SUM(consultation_count), 0)
+        FROM biz_spider_data
+        WHERE record_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+    </select>
+
+    <!-- 今日操作员数 -->
+    <select id="countTodayOperators" resultType="java.lang.Integer">
+        SELECT COUNT(DISTINCT employee_id)
+        FROM biz_spider_data
+        WHERE DATE(record_date) = CURDATE()
+          AND employee_id IS NOT NULL
+    </select>
+
+    <!-- 今日异常数 -->
+    <select id="countTodayAbnormal" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM biz_spider_data
+        WHERE DATE(record_date) = CURDATE() AND is_abnormal = 1
+    </select>
+
+    <!-- 今日正常数 -->
+    <select id="countTodayNormal" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM biz_spider_data
+        WHERE DATE(record_date) = CURDATE() AND is_abnormal = 0
+    </select>
+
+    <!-- 今日高危（3分钟响应率 < 50%） -->
+    <select id="countTodayHighRisk" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM biz_spider_data
+        WHERE DATE(record_date) = CURDATE()
+          AND response_rate_3m IS NOT NULL
+          AND response_rate_3m &lt; 50
+    </select>
+
+    <!-- 本月累计异常 -->
+    <select id="countMonthAbnormal" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM biz_spider_data
+        WHERE YEAR(record_date) = YEAR(CURDATE())
+          AND MONTH(record_date) = MONTH(CURDATE())
+          AND is_abnormal = 1
+    </select>
+
+    <!-- 近7天趋势 -->
+    <select id="selectWeekTrend" resultType="java.util.Map">
+        SELECT
+            DATE_FORMAT(DATE(record_date), '%m-%d') AS `date`,
+            COALESCE(SUM(consultation_count), 0)    AS consultation,
+            SUM(CASE WHEN is_abnormal = 1 THEN 1 ELSE 0 END) AS abnormalCount
+        FROM biz_spider_data
+        WHERE record_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+        GROUP BY DATE(record_date), DATE_FORMAT(DATE(record_date), '%m-%d')
+        ORDER BY DATE(record_date) ASC
+    </select>
+
+    <!-- 最近5条异常预警 -->
+    <select id="selectRecentAlerts" resultType="java.util.Map">
+        SELECT
+            sd.id,
+            sd.shop_id AS shopId,
+            sd.response_rate_3m AS responseRate,
+            sd.consultation_count AS consultationCount,
+            sd.sales_amount AS salesAmount,
+            sd.record_date AS recordDate,
+            sd.create_time AS uploadTime
+        FROM biz_spider_data sd
+        WHERE sd.is_abnormal = 1
+        ORDER BY sd.create_time DESC
+        LIMIT 5
+    </select>
+
+</mapper>

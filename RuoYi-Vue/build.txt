@@ -1,0 +1,59 @@
+[INFO] Scanning for projects...
+[INFO] ------------------------------------------------------------------------
+[INFO] Reactor Build Order:
+[INFO] 
+[INFO] ruoyi                                                              [pom]
+[INFO] ruoyi-common                                                       [jar]
+[INFO] ruoyi-system                                                       [jar]
+[INFO] ruoyi-framework                                                    [jar]
+[INFO] ruoyi-quartz                                                       [jar]
+[INFO] ruoyi-generator                                                    [jar]
+[INFO] ruoyi-admin                                                        [jar]
+[INFO] 
+[INFO] --------------------------< com.ruoyi:ruoyi >---------------------------
+[INFO] Building ruoyi 3.9.2                                               [1/7]
+[INFO]   from pom.xml
+[INFO] --------------------------------[ pom ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ ruoyi ---
+[INFO] 
+[INFO] -----------------------< com.ruoyi:ruoyi-common >-----------------------
+[INFO] Building ruoyi-common 3.9.2                                        [2/7]
+[INFO]   from ruoyi-common\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ ruoyi-common ---
+[INFO] Deleting D:\Tools\work_project\RuoYi-Vue\ruoyi-common\target
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ ruoyi-common ---
+[INFO] skip non existing resourceDirectory D:\Tools\work_project\RuoYi-Vue\ruoyi-common\src\main\resources
+[INFO] 
+[INFO] --- compiler:3.13.0:compile (default-compile) @ ruoyi-common ---
+[INFO] Recompiling the module because of changed source code.
+[INFO] Compiling 110 source files with javac [debug parameters target 17] to target\classes
+[INFO] ------------------------------------------------------------------------
+[INFO] Reactor Summary for ruoyi 3.9.2:
+[INFO] 
+[INFO] ruoyi .............................................. SUCCESS [  0.108 s]
+[INFO] ruoyi-common ....................................... FAILURE [  0.824 s]
+[INFO] ruoyi-system ....................................... SKIPPED
+[INFO] ruoyi-framework .................................... SKIPPED
+[INFO] ruoyi-quartz ....................................... SKIPPED
+[INFO] ruoyi-generator .................................... SKIPPED
+[INFO] ruoyi-admin ........................................ SKIPPED
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  1.231 s
+[INFO] Finished at: 2026-04-01T15:04:09+08:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.13.0:compile (default-compile) on project ruoyi-common: Fatal error compiling: 无效的目标发行版: 17 -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoExecutionException
+[ERROR] 
+[ERROR] After correcting the problems, you can resume the build with the command
+[ERROR]   mvn <args> -rf :ruoyi-common

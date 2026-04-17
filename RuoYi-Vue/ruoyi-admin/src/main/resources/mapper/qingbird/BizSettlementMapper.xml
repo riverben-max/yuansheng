@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.qingbird.mapper.BizSettlementMapper">
+    
+    <resultMap type="com.ruoyi.qingbird.domain.BizSettlement" id="BizSettlementResult">
+        <result property="id"    column="id"    />
+        <result property="branchId"    column="branch_id"    />
+        <result property="branchName"    column="branch_name"    />
+        <result property="settlementPeriod"    column="settlement_period"    />
+        <result property="settlementAmount"    column="settlement_amount"    />
+        <result property="baseSalary"    column="base_salary"    />
+        <result property="commission"    column="commission"    />
+        <result property="penalty"    column="penalty"    />
+        <result property="settlementTime"    column="settlement_time"    />
+        <result property="remark"    column="remark"    />
+        <result property="createBy"    column="create_by"    />
+        <result property="createTime"    column="create_time"    />
+        <result property="updateBy"    column="update_by"    />
+        <result property="updateTime"    column="update_time"    />
+    </resultMap>
+
+    <sql id="selectBizSettlementVo">
+        select id, branch_id, branch_name, settlement_period, settlement_amount, base_salary, commission, penalty, settlement_time, remark, create_by, create_time, update_by, update_time from biz_settlement
+    </sql>
+
+    <select id="selectBizSettlementList" parameterType="com.ruoyi.qingbird.domain.BizSettlement" resultMap="BizSettlementResult">
+        <include refid="selectBizSettlementVo"/>
+        <where>  
+            <if test="branchId != null "> and branch_id = #{branchId}</if>
+            <if test="branchName != null  and branchName != ''"> and branch_name like concat('%', #{branchName}, '%')</if>
+            <if test="settlementPeriod != null  and settlementPeriod != ''"> and settlement_period = #{settlementPeriod}</if>
+        </where>
+        order by create_time desc
+    </select>
+    
+    <select id="selectBizSettlementById" parameterType="Long" resultMap="BizSettlementResult">
+        <include refid="selectBizSettlementVo"/>
+        where id = #{id}
+    </select>
+        
+    <insert id="insertBizSettlement" parameterType="com.ruoyi.qingbird.domain.BizSettlement" useGeneratedKeys="true" keyProperty="id">
+        insert into biz_settlement
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="branchId != null">branch_id,</if>
+            <if test="branchName != null">branch_name,</if>
+            <if test="settlementPeriod != null">settlement_period,</if>
+            <if test="settlementAmount != null">settlement_amount,</if>
+            <if test="baseSalary != null">base_salary,</if>
+            <if test="commission != null">commission,</if>
+            <if test="penalty != null">penalty,</if>
+            <if test="settlementTime != null">settlement_time,</if>
+            <if test="remark != null">remark,</if>
+            <if test="createBy != null">create_by,</if>
+            <if test="createTime != null">create_time,</if>
+            <if test="updateBy != null">update_by,</if>
+            <if test="updateTime != null">update_time,</if>
+         </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="branchId != null">#{branchId},</if>
+            <if test="branchName != null">#{branchName},</if>
+            <if test="settlementPeriod != null">#{settlementPeriod},</if>
+            <if test="settlementAmount != null">#{settlementAmount},</if>
+            <if test="baseSalary != null">#{baseSalary},</if>
+            <if test="commission != null">#{commission},</if>
+            <if test="penalty != null">#{penalty},</if>
+            <if test="settlementTime != null">#{settlementTime},</if>
+            <if test="remark != null">#{remark},</if>
+            <if test="createBy != null">#{createBy},</if>
+            <if test="createTime != null">#{createTime},</if>
+            <if test="updateBy != null">#{updateBy},</if>
+            <if test="updateTime != null">#{updateTime},</if>
+         </trim>
+    </insert>
+
+    <update id="updateBizSettlement" parameterType="com.ruoyi.qingbird.domain.BizSettlement">
+        update biz_settlement
+        <trim prefix="SET" suffixOverrides=",">
+            <if test="branchId != null">branch_id = #{branchId},</if>
+            <if test="branchName != null">branch_name = #{branchName},</if>
+            <if test="settlementPeriod != null">settlement_period = #{settlementPeriod},</if>
+            <if test="settlementAmount != null">settlement_amount = #{settlementAmount},</if>
+            <if test="baseSalary != null">base_salary = #{baseSalary},</if>
+            <if test="commission != null">commission = #{commission},</if>
+            <if test="penalty != null">penalty = #{penalty},</if>
+            <if test="settlementTime != null">settlement_time = #{settlementTime},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+        </trim>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteBizSettlementById" parameterType="Long">
+        delete from biz_settlement where id = #{id}
+    </delete>
+
+    <delete id="deleteBizSettlementByIds" parameterType="String">
+        delete from biz_settlement where id in 
+        <foreach item="id" collection="array" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+</mapper>

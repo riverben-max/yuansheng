@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.qingbird.mapper.BizBranchInfoMapper">
+
+    <resultMap type="com.ruoyi.qingbird.domain.BizBranchInfo" id="BizBranchInfoResult">
+        <result property="id"    column="id"    />
+        <result property="branchId"    column="branch_id"    />
+        <result property="workplaceName"    column="workplace_name"    />
+        <result property="companyName"    column="company_name"    />
+        <result property="businessLicense"    column="business_license"    />
+        <result property="legalPersonName"    column="legal_person_name"    />
+        <result property="idCardFront"    column="id_card_front"    />
+        <result property="idCardBack"    column="id_card_back"    />
+        <result property="contactPhone"    column="contact_phone"    />
+        <result property="contactAddress"    column="contact_address"    />
+        <result property="settlementAccounts"    column="settlement_accounts"    />
+        <result property="auditStatus"    column="audit_status"    />
+        <result property="createBy"    column="create_by"    />
+        <result property="createTime"    column="create_time"    />
+        <result property="updateBy"    column="update_by"    />
+        <result property="updateTime"    column="update_time"    />
+        <!-- 为了方便列表中带出账号，可以通过左连接 sys_user 取一个挂靠在该部门下的拥有 manager 角色的用户名当做 account，暂略 -->
+    </resultMap>
+
+    <sql id="selectBizBranchInfoVo">
+        select id, branch_id, workplace_name, company_name, business_license, legal_person_name, id_card_front, id_card_back, contact_phone, contact_address, settlement_accounts, audit_status, create_by, create_time, update_by, update_time from biz_branch_info
+    </sql>
+
+    <select id="selectBizBranchInfoList" parameterType="com.ruoyi.qingbird.domain.BizBranchInfo" resultMap="BizBranchInfoResult">
+        <include refid="selectBizBranchInfoVo"/>
+        <where>
+            <if test="workplaceName != null  and workplaceName != ''"> and workplace_name like concat('%', #{workplaceName}, '%')</if>
+            <if test="companyName != null  and companyName != ''"> and company_name like concat('%', #{companyName}, '%')</if>
+            <if test="auditStatus != null "> and audit_status = #{auditStatus}</if>
+        </where>
+        order by create_time desc
+    </select>
+
+    <select id="selectBizBranchInfoById" parameterType="Long" resultMap="BizBranchInfoResult">
+        <include refid="selectBizBranchInfoVo"/>
+        where id = #{id}
+    </select>
+
+    <select id="selectBizBranchInfoByBranchId" parameterType="Long" resultMap="BizBranchInfoResult">
+        <include refid="selectBizBranchInfoVo"/>
+        where branch_id = #{branchId} limit 1
+    </select>
+
+    <insert id="insertBizBranchInfo" parameterType="com.ruoyi.qingbird.domain.BizBranchInfo" useGeneratedKeys="true" keyProperty="id">
+        insert into biz_branch_info
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="branchId != null">branch_id,</if>
+            <if test="workplaceName != null">workplace_name,</if>
+            <if test="companyName != null and companyName != ''">company_name,</if>
+            <if test="businessLicense != null">business_license,</if>
+            <if test="legalPersonName != null">legal_person_name,</if>
+            <if test="idCardFront != null">id_card_front,</if>
+            <if test="idCardBack != null">id_card_back,</if>
+            <if test="contactPhone != null">contact_phone,</if>
+            <if test="contactAddress != null">contact_address,</if>
+            <if test="settlementAccounts != null">settlement_accounts,</if>
+            <if test="auditStatus != null">audit_status,</if>
+            <if test="createBy != null">create_by,</if>
+            <if test="createTime != null">create_time,</if>
+         </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="branchId != null">#{branchId},</if>
+            <if test="workplaceName != null">#{workplaceName},</if>
+            <if test="companyName != null and companyName != ''">#{companyName},</if>
+            <if test="businessLicense != null">#{businessLicense},</if>
+            <if test="legalPersonName != null">#{legalPersonName},</if>
+            <if test="idCardFront != null">#{idCardFront},</if>
+            <if test="idCardBack != null">#{idCardBack},</if>
+            <if test="contactPhone != null">#{contactPhone},</if>
+            <if test="contactAddress != null">#{contactAddress},</if>
+            <if test="settlementAccounts != null">#{settlementAccounts},</if>
+            <if test="auditStatus != null">#{auditStatus},</if>
+            <if test="createBy != null">#{createBy},</if>
+            <if test="createTime != null">#{createTime},</if>
+         </trim>
+    </insert>
+
+    <update id="updateBizBranchInfo" parameterType="com.ruoyi.qingbird.domain.BizBranchInfo">
+        update biz_branch_info
+        <trim prefix="SET" suffixOverrides=",">
+            <if test="workplaceName != null">workplace_name = #{workplaceName},</if>
+            <if test="companyName != null and companyName != ''">company_name = #{companyName},</if>
+            <if test="businessLicense != null">business_license = #{businessLicense},</if>
+            <if test="legalPersonName != null">legal_person_name = #{legalPersonName},</if>
+            <if test="idCardFront != null">id_card_front = #{idCardFront},</if>
+            <if test="idCardBack != null">id_card_back = #{idCardBack},</if>
+            <if test="contactPhone != null">contact_phone = #{contactPhone},</if>
+            <if test="contactAddress != null">contact_address = #{contactAddress},</if>
+            <if test="settlementAccounts != null">settlement_accounts = #{settlementAccounts},</if>
+            <if test="auditStatus != null">audit_status = #{auditStatus},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+        </trim>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteBizBranchInfoById" parameterType="Long">
+        delete from biz_branch_info where id = #{id}
+    </delete>
+
+</mapper>

@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.qingbird.mapper.BizEmployeeMapper">
+
+    <resultMap id="BizEmployeeResult" type="com.ruoyi.qingbird.domain.BizEmployee">
+        <id     property="id"             column="id"/>
+        <result property="userId"         column="user_id"/>
+        <result property="loginAccount"   column="login_account"/>
+        <result property="idCard"         column="id_card"/>
+        <result property="address"        column="address"/>
+        <result property="branchCode"     column="branch_code"/>
+        <result property="name"           column="name"/>
+        <result property="avatarColor"    column="avatar_color"/>
+        <result property="position"       column="position"/>
+        <result property="department"     column="department"/>
+        <result property="source"         column="source"/>
+        <result property="birthday"       column="birthday"/>
+        <result property="mobile"         column="mobile"/>
+        <result property="internDate"     column="intern_date"/>
+        <result property="hireDate"       column="hire_date"/>
+        <result property="contractStatus" column="contract_status"/>
+        <result property="salaryBase"     column="salary_base"/>
+        <result property="depositAmount"  column="deposit_amount"/>
+        <result property="status"         column="status"/>
+        <result property="resignDate"     column="resign_date"/>
+        <result property="remark"         column="remark"/>
+        <result property="createTime"     column="create_time"/>
+        <result property="updateTime"     column="update_time"/>
+        <result property="lastLoginIp"    column="login_ip"/>
+        <result property="lastLoginTime"  column="login_date"/>
+    </resultMap>
+
+    <sql id="selectColumns">
+        id, user_id, login_account, id_card, address, branch_code, name, avatar_color, position, department,
+        source, birthday, mobile, intern_date, hire_date,
+        contract_status, salary_base, deposit_amount, status, resign_date,
+        remark, create_by, create_time, update_by, update_time
+    </sql>
+
+    <!-- 查询列表 -->
+    <select id="selectEmployeeList" parameterType="com.ruoyi.qingbird.domain.BizEmployee"
+            resultMap="BizEmployeeResult">
+        SELECT e.id, e.user_id, e.login_account, e.id_card, e.address, e.branch_code, e.name, e.avatar_color, e.position, e.department,
+        e.source, e.birthday, e.mobile, e.intern_date, e.hire_date,
+        e.contract_status, e.salary_base, e.deposit_amount, e.status, e.resign_date,
+        e.remark, e.create_by, e.create_time, e.update_by, e.update_time, 
+        u.login_ip, u.login_date
+        FROM biz_employee e
+        LEFT JOIN sys_user u ON e.user_id = u.user_id
+        <where>
+            <if test="branchCode != null and branchCode != ''">
+                AND e.branch_code = #{branchCode}
+            </if>
+            <if test="name != null and name != ''">
+                AND e.name LIKE CONCAT('%', #{name}, '%')
+            </if>
+            <if test="idCard != null and idCard != ''">
+                AND e.id_card LIKE CONCAT('%', #{idCard}, '%')
+            </if>
+            <if test="mobile != null and mobile != ''">
+                AND e.mobile LIKE CONCAT('%', #{mobile}, '%')
+            </if>
+            <if test="position != null and position != ''">
+                AND e.position LIKE CONCAT('%', #{position}, '%')
+            </if>
+            <if test="department != null and department != ''">
+                AND e.department = #{department}
+            </if>
+            <if test="status != null and status != ''">
+                AND e.status = #{status}
+            </if>
+            <if test="loginAccount != null and loginAccount != ''">
+                AND e.login_account LIKE CONCAT('%', #{loginAccount}, '%')
+            </if>
+        </where>
+        ORDER BY e.create_time DESC
+    </select>
+
+    <!-- 查询单条 -->
+    <select id="selectEmployeeById" parameterType="Long" resultMap="BizEmployeeResult">
+        SELECT <include refid="selectColumns"/> FROM biz_employee WHERE id = #{id}
+    </select>
+
+    <!-- 新增 -->
+    <insert id="insertEmployee" parameterType="com.ruoyi.qingbird.domain.BizEmployee"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO biz_employee (
+            user_id, login_account, id_card, address,
+            branch_code, name, avatar_color, position, department,
+            source, birthday, mobile, intern_date, hire_date,
+            contract_status, salary_base, deposit_amount, status, resign_date,
+            remark, create_by, create_time
+        ) VALUES (
+            #{userId}, #{loginAccount}, #{idCard}, #{address},
+            #{branchCode}, #{name}, #{avatarColor}, #{position}, #{department},
+            #{source}, #{birthday}, #{mobile}, #{internDate}, #{hireDate},
+            #{contractStatus}, #{salaryBase}, #{depositAmount}, #{status}, #{resignDate},
+            #{remark}, #{createBy}, NOW()
+        )
+    </insert>
+
+    <!-- 修改 -->
+    <update id="updateEmployee" parameterType="com.ruoyi.qingbird.domain.BizEmployee">
+        UPDATE biz_employee
+        <set>
+            <if test="userId != null">user_id = #{userId},</if>
+            <if test="loginAccount != null and loginAccount != ''">login_account = #{loginAccount},</if>
+            <if test="idCard != null and idCard != ''">id_card = #{idCard},</if>
+            <if test="address != null and address != ''">address = #{address},</if>
+            <if test="name != null and name != ''">name = #{name},</if>
+            <if test="avatarColor != null">avatar_color = #{avatarColor},</if>
+            <if test="position != null">position = #{position},</if>
+            <if test="department != null">department = #{department},</if>
+            <if test="source != null">source = #{source},</if>
+            <if test="birthday != null">birthday = #{birthday},</if>
+            <if test="mobile != null">mobile = #{mobile},</if>
+            <if test="internDate != null">intern_date = #{internDate},</if>
+            <if test="hireDate != null">hire_date = #{hireDate},</if>
+            <if test="contractStatus != null">contract_status = #{contractStatus},</if>
+            <if test="salaryBase != null">salary_base = #{salaryBase},</if>
+            <if test="depositAmount != null">deposit_amount = #{depositAmount},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="resignDate != null">resign_date = #{resignDate},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            update_by = #{updateBy},
+            update_time = NOW()
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <!-- 删除 -->
+    <delete id="deleteEmployeeById" parameterType="Long">
+        DELETE FROM biz_employee WHERE id = #{id}
+    </delete>
+
+</mapper>

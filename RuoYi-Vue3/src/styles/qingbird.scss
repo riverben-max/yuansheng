@@ -1,0 +1,118 @@
+/* ===================================================
+ * 青鸟集团管理系统 - 全局设计 Token
+ * 基于客户原型稿统一提取的设计变量
+ * =================================================== */
+
+:root {
+  /* 主色 */
+  --qb-primary: #6C4EF2;
+  --qb-primary-light: #8B72F5;
+  --qb-primary-dark: #5338D4;
+  --qb-primary-bg: #F0EDFF;
+
+  /* 辅助色 */
+  --qb-success: #52C41A;
+  --qb-warning: #FAAD14;
+  --qb-danger: #FF4D4F;
+  --qb-info: #1677FF;
+
+  /* 中性色 */
+  --qb-bg: #F4F5F7;
+  --qb-sidebar-bg: #FFFFFF;
+  --qb-topbar-bg: #FFFFFF;
+  --qb-card-bg: #FFFFFF;
+  --qb-border: #EBEBEB;
+  --qb-text-primary: #1A1A1A;
+  --qb-text-secondary: #666666;
+  --qb-text-muted: #AAAAAA;
+
+  /* 侧边栏 */
+  --qb-sidebar-width: 168px;
+  --qb-topbar-height: 56px;
+  --qb-sidebar-active-bg: #111111;
+  --qb-sidebar-active-text: #FFFFFF;
+  --qb-sidebar-hover-bg: #F5F5F5;
+  --qb-sidebar-item-height: 42px;
+
+  /* 暗色 KPI 卡片 */
+  --qb-dark-card-bg: #12121E;
+
+  /* 卡片 */
+  --qb-radius: 12px;
+  --qb-radius-sm: 8px;
+  --qb-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  --qb-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+/* 全局页面背景 */
+.qb-page {
+  background: var(--qb-bg);
+  min-height: 100%;
+}
+
+/* 通用卡片 */
+.qb-card {
+  background: var(--qb-card-bg);
+  border-radius: var(--qb-radius);
+  box-shadow: var(--qb-shadow);
+  padding: 20px;
+}
+
+/* 页面标题区域 */
+.qb-page-header {
+  margin-bottom: 20px;
+
+  .qb-page-title {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--qb-text-primary);
+    line-height: 1.3;
+    margin: 0 0 4px 0;
+  }
+
+  .qb-page-subtitle {
+    font-size: 13px;
+    color: var(--qb-text-muted);
+    margin: 0;
+  }
+}
+
+/* 主色按钮 */
+.qb-btn-primary {
+  background: var(--qb-primary) !important;
+  border-color: var(--qb-primary) !important;
+  color: #fff !important;
+  border-radius: var(--qb-radius-sm) !important;
+  font-weight: 600;
+
+  &:hover {
+    background: var(--qb-primary-light) !important;
+    border-color: var(--qb-primary-light) !important;
+  }
+}
+
+/* 占位页样式 */
+.qb-placeholder-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 60vh;
+  color: var(--qb-text-muted);
+
+  .placeholder-icon {
+    font-size: 64px;
+    margin-bottom: 16px;
+    opacity: 0.3;
+  }
+
+  h3 {
+    font-size: 18px;
+    color: var(--qb-text-secondary);
+    margin-bottom: 8px;
+  }
+
+  p {
+    font-size: 13px;
+  }
+}

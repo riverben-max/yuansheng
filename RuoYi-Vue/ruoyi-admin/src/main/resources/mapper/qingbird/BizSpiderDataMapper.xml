@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.qingbird.mapper.BizSpiderDataMapper">
+
+    <resultMap type="com.ruoyi.qingbird.domain.BizSpiderData" id="BizSpiderDataResult">
+        <result property="id"                       column="id"                        />
+        <result property="shopId"                   column="shop_id"                   />
+        <result property="employeeId"               column="employee_id"               />
+        <result property="branchId"                 column="branch_id"                 />
+        <result property="recordDate"               column="record_date"               />
+        <result property="subAccount"               column="sub_account"               />
+        <result property="consultationCount"        column="consultation_count"        />
+        <result property="receptionCount"           column="reception_count"           />
+        <result property="effectiveReceptionCount"  column="effective_reception_count" />
+        <result property="conversionRate"           column="conversion_rate"           />
+        <result property="firstResponseTime"        column="first_response_time"       />
+        <result property="avgResponseTime"          column="avg_response_time"         />
+        <result property="salesAmount"              column="sales_amount"              />
+        <result property="responseRate3m"           column="response_rate_3m"          />
+        <result property="responseRate30s"          column="response_rate_30s"         />
+        <result property="replyRate"                column="reply_rate"                />
+        <result property="satisfaction"             column="satisfaction"              />
+        <result property="shopSatisfaction"         column="shop_satisfaction"         />
+        <result property="rawMetrics"               column="raw_metrics"               />
+        <result property="uploadIp"                 column="upload_ip"                 />
+        <result property="isAbnormal"               column="is_abnormal"               />
+        <result property="createTime"               column="create_time"               />
+        <result property="updateTime"               column="update_time"               />
+    </resultMap>
+
+    <sql id="selectSpiderDataVO">
+        select d.id, d.shop_id, d.employee_id, s.branch_id, d.record_date, d.sub_account,
+               d.consultation_count, d.reception_count, d.effective_reception_count,
+               d.conversion_rate, d.first_response_time, d.avg_response_time,
+               d.sales_amount, d.response_rate_3m, d.response_rate_30s,
+               d.reply_rate, d.satisfaction, d.shop_satisfaction,
+               d.raw_metrics, d.upload_ip, d.is_abnormal, d.create_time, d.update_time
+        from biz_spider_data d
+        left join biz_shop s on d.shop_id = s.shop_id
+    </sql>
+
+    <select id="selectSpiderDataList" parameterType="com.ruoyi.qingbird.domain.BizSpiderData" resultMap="BizSpiderDataResult">
+        <include refid="selectSpiderDataVO"/>
+        <where>
+            <if test="shopId != null">and d.shop_id = #{shopId}</if>
+            <if test="employeeId != null">and d.employee_id = #{employeeId}</if>
+            <if test="branchId != null">and s.branch_id = #{branchId}</if>
+            <if test="recordDate != null">and d.record_date = #{recordDate}</if>
+            <if test="subAccount != null and subAccount != ''">and d.sub_account = #{subAccount}</if>
+            <if test="isAbnormal != null">and d.is_abnormal = #{isAbnormal}</if>
+        </where>
+        order by d.record_date desc, d.sub_account asc, d.create_time desc
+    </select>
+
+    <select id="selectSpiderDataById" parameterType="Long" resultMap="BizSpiderDataResult">
+        <include refid="selectSpiderDataVO"/>
+        where d.id = #{id}
+    </select>
+
+    <!--
+        Upsert：唯一键 (shop_id, record_date, sub_account)
+        重复时更新所有业务字段，保留首次 create_time。
+    -->
+    <insert id="upsertSpiderData" parameterType="com.ruoyi.qingbird.domain.BizSpiderData" useGeneratedKeys="true" keyProperty="id">
+        insert into biz_spider_data (
+            shop_id, employee_id, record_date, sub_account,
+            consultation_count, reception_count, effective_reception_count,
+            conversion_rate, first_response_time, avg_response_time,
+            sales_amount, response_rate_3m, response_rate_30s,
+            reply_rate, satisfaction, shop_satisfaction,
+            raw_metrics, upload_ip, is_abnormal, create_time
+        ) values (
+            #{shopId}, #{employeeId}, #{recordDate}, #{subAccount},
+            #{consultationCount}, #{receptionCount}, #{effectiveReceptionCount},
+            #{conversionRate}, #{firstResponseTime}, #{avgResponseTime},
+            #{salesAmount}, #{responseRate3m}, #{responseRate30s},
+            #{replyRate}, #{satisfaction}, #{shopSatisfaction},
+            #{rawMetrics}, #{uploadIp}, #{isAbnormal}, sysdate()
+        )
+        on duplicate key update
+            employee_id               = values(employee_id),
+            consultation_count        = values(consultation_count),
+            reception_count           = values(reception_count),
+            effective_reception_count = values(effective_reception_count),
+            conversion_rate           = values(conversion_rate),
+            first_response_time       = values(first_response_time),
+            avg_response_time         = values(avg_response_time),
+            sales_amount              = values(sales_amount),
+            response_rate_3m          = values(response_rate_3m),
+            response_rate_30s         = values(response_rate_30s),
+            reply_rate                = values(reply_rate),
+            satisfaction              = values(satisfaction),
+            shop_satisfaction         = values(shop_satisfaction),
+            raw_metrics               = values(raw_metrics),
+            upload_ip                 = values(upload_ip),
+            is_abnormal               = values(is_abnormal),
+            update_time               = sysdate()
+    </insert>
+
+</mapper>

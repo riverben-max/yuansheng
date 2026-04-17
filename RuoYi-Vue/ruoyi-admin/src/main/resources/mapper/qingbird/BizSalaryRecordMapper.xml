@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.qingbird.mapper.BizSalaryRecordMapper">
+
+    <resultMap type="com.ruoyi.qingbird.domain.BizSalaryRecord" id="BizSalaryRecordResult">
+        <result property="id"    column="id"    />
+        <result property="salaryMonth"    column="salary_month"    />
+        <result property="branchCode"    column="branch_code"    />
+        <result property="name"    column="name"    />
+        <result property="position"    column="position"    />
+        <result property="avatarColor"    column="avatar_color"    />
+        <result property="baseWage"    column="base_wage"    />
+        <result property="attendanceDays"    column="attendance_days"    />
+        <result property="performancePay"    column="performance_pay"    />
+        <result property="shopDailyRate"    column="shop_daily_rate"    />
+        <result property="tierRate"    column="tier_rate"    />
+        <result property="promotionBonus"    column="promotion_bonus"    />
+        <result property="standbyDeduction"    column="standby_deduction"    />
+        <result property="leaveDeduction"    column="leave_deduction"    />
+        <result property="loanDeduction"    column="loan_deduction"    />
+        <result property="unitSubsidy"    column="unit_subsidy"    />
+        <result property="specialSubsidy"    column="special_subsidy"    />
+        <result property="lateDeduction"    column="late_deduction"    />
+        <result property="midSubsidy"    column="mid_subsidy"    />
+        <result property="extraWage"    column="extra_wage"    />
+        <result property="policyBonusNote"    column="policy_bonus_note"    />
+        <result property="actualTotal"    column="actual_total"    />
+        <result property="createBy"    column="create_by"    />
+        <result property="createTime"    column="create_time"    />
+        <result property="updateBy"    column="update_by"    />
+        <result property="updateTime"    column="update_time"    />
+    </resultMap>
+
+    <sql id="selectBizSalaryRecordVo">
+        select id, salary_month, branch_code, name, position, avatar_color, base_wage, attendance_days, performance_pay, shop_daily_rate, tier_rate, promotion_bonus, standby_deduction, leave_deduction, loan_deduction, unit_subsidy, special_subsidy, late_deduction, mid_subsidy, extra_wage, policy_bonus_note, actual_total, create_by, create_time, update_by, update_time from biz_salary_record
+    </sql>
+
+    <select id="selectSalaryList" parameterType="com.ruoyi.qingbird.domain.BizSalaryRecord" resultMap="BizSalaryRecordResult">
+        <include refid="selectBizSalaryRecordVo"/>
+        <where>
+            <if test="salaryMonth != null and salaryMonth != ''"> and salary_month = #{salaryMonth}</if>
+            <if test="branchCode != null and branchCode != ''"> and branch_code = #{branchCode}</if>
+            <if test="name != null and name != ''"> and name like concat('%', #{name}, '%')</if>
+        </where>
+        order by create_time desc
+    </select>
+
+    <select id="selectSalaryById" parameterType="Long" resultMap="BizSalaryRecordResult">
+        <include refid="selectBizSalaryRecordVo"/>
+        where id = #{id}
+    </select>
+
+    <insert id="insertSalary" parameterType="com.ruoyi.qingbird.domain.BizSalaryRecord" useGeneratedKeys="true" keyProperty="id">
+        insert into biz_salary_record
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="salaryMonth != null and salaryMonth != ''">salary_month,</if>
+            <if test="branchCode != null and branchCode != ''">branch_code,</if>
+            <if test="name != null and name != ''">name,</if>
+            <if test="position != null">position,</if>
+            <if test="avatarColor != null">avatar_color,</if>
+            <if test="baseWage != null">base_wage,</if>
+            <if test="attendanceDays != null">attendance_days,</if>
+            <if test="performancePay != null">performance_pay,</if>
+            <if test="shopDailyRate != null">shop_daily_rate,</if>
+            <if test="tierRate != null">tier_rate,</if>
+            <if test="promotionBonus != null">promotion_bonus,</if>
+            <if test="standbyDeduction != null">standby_deduction,</if>
+            <if test="leaveDeduction != null">leave_deduction,</if>
+            <if test="loanDeduction != null">loan_deduction,</if>
+            <if test="unitSubsidy != null">unit_subsidy,</if>
+            <if test="specialSubsidy != null">special_subsidy,</if>
+            <if test="lateDeduction != null">late_deduction,</if>
+            <if test="midSubsidy != null">mid_subsidy,</if>
+            <if test="extraWage != null">extra_wage,</if>
+            <if test="policyBonusNote != null">policy_bonus_note,</if>
+            <if test="actualTotal != null">actual_total,</if>
+            <if test="createBy != null">create_by,</if>
+            <if test="createTime != null">create_time,</if>
+         </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="salaryMonth != null and salaryMonth != ''">#{salaryMonth},</if>
+            <if test="branchCode != null and branchCode != ''">#{branchCode},</if>
+            <if test="name != null and name != ''">#{name},</if>
+            <if test="position != null">#{position},</if>
+            <if test="avatarColor != null">#{avatarColor},</if>
+            <if test="baseWage != null">#{baseWage},</if>
+            <if test="attendanceDays != null">#{attendanceDays},</if>
+            <if test="performancePay != null">#{performancePay},</if>
+            <if test="shopDailyRate != null">#{shopDailyRate},</if>
+            <if test="tierRate != null">#{tierRate},</if>
+            <if test="promotionBonus != null">#{promotionBonus},</if>
+            <if test="standbyDeduction != null">#{standbyDeduction},</if>
+            <if test="leaveDeduction != null">#{leaveDeduction},</if>
+            <if test="loanDeduction != null">#{loanDeduction},</if>
+            <if test="unitSubsidy != null">#{unitSubsidy},</if>
+            <if test="specialSubsidy != null">#{specialSubsidy},</if>
+            <if test="lateDeduction != null">#{lateDeduction},</if>
+            <if test="midSubsidy != null">#{midSubsidy},</if>
+            <if test="extraWage != null">#{extraWage},</if>
+            <if test="policyBonusNote != null">#{policyBonusNote},</if>
+            <if test="actualTotal != null">#{actualTotal},</if>
+            <if test="createBy != null">#{createBy},</if>
+            <if test="createTime != null">#{createTime},</if>
+         </trim>
+    </insert>
+
+    <update id="updateSalary" parameterType="com.ruoyi.qingbird.domain.BizSalaryRecord">
+        update biz_salary_record
+        <trim prefix="SET" suffixOverrides=",">
+            <if test="salaryMonth != null and salaryMonth != ''">salary_month = #{salaryMonth},</if>
+            <if test="branchCode != null and branchCode != ''">branch_code = #{branchCode},</if>
+            <if test="name != null and name != ''">name = #{name},</if>
+            <if test="position != null">position = #{position},</if>
+            <if test="avatarColor != null">avatar_color = #{avatarColor},</if>
+            <if test="baseWage != null">base_wage = #{baseWage},</if>
+            <if test="attendanceDays != null">attendance_days = #{attendanceDays},</if>
+            <if test="performancePay != null">performance_pay = #{performancePay},</if>
+            <if test="shopDailyRate != null">shop_daily_rate = #{shopDailyRate},</if>
+            <if test="tierRate != null">tier_rate = #{tierRate},</if>
+            <if test="promotionBonus != null">promotion_bonus = #{promotionBonus},</if>
+            <if test="standbyDeduction != null">standby_deduction = #{standbyDeduction},</if>
+            <if test="leaveDeduction != null">leave_deduction = #{leaveDeduction},</if>
+            <if test="loanDeduction != null">loan_deduction = #{loanDeduction},</if>
+            <if test="unitSubsidy != null">unit_subsidy = #{unitSubsidy},</if>
+            <if test="specialSubsidy != null">special_subsidy = #{specialSubsidy},</if>
+            <if test="lateDeduction != null">late_deduction = #{lateDeduction},</if>
+            <if test="midSubsidy != null">mid_subsidy = #{midSubsidy},</if>
+            <if test="extraWage != null">extra_wage = #{extraWage},</if>
+            <if test="policyBonusNote != null">policy_bonus_note = #{policyBonusNote},</if>
+            <if test="actualTotal != null">actual_total = #{actualTotal},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+        </trim>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteSalaryById" parameterType="Long">
+        delete from biz_salary_record where id = #{id}
+    </delete>
+
+    <delete id="deleteSalaryByIds" parameterType="String">
+        delete from biz_salary_record where id in 
+        <foreach item="id" collection="array" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+</mapper>
