@@ -11,11 +11,14 @@ import winreg
 
 import psutil
 
+from spider_core import EMPLOYEE_TARGET_URL
+
 DEFAULT_REMOTE_PORT = 9222
 DEFAULT_DISK_CACHE_SIZE = 10 * 1024 * 1024
+LOGIN_START_URL = "https://loginmyseller.taobao.com/"
 WINDOW_SIZE = "1280,900"
-HIDDEN_POSITION = "-2000,-2000"
 VISIBLE_POSITION = "120,120"
+HIDDEN_POSITION = VISIBLE_POSITION
 APP_DIR_NAME = "YuanshengDataAssistant"
 
 
@@ -29,6 +32,16 @@ class ChromeNotFoundError(ShadowBrowserError):
 
 class PortOccupiedError(ShadowBrowserError):
     """Raised when the target debug port is occupied by a non-shadow process."""
+
+
+class DrissionTempBrowserDetected(ShadowBrowserError):
+    """Raised when DrissionPage temporary Chrome owns the target debug port."""
+
+
+@dataclass
+class DevToolsEndpoint:
+    port: int
+    browser_path: str
 
 
 @dataclass
@@ -80,9 +93,9 @@ def attach_or_recover_shadow_browser(
     visible: bool = False,
 ) -> ShadowBrowserSession:
     chrome_path = resolve_chrome_path(config)
-    port = _resolve_port(config)
     profile_dir = _resolve_profile_dir(config)
     profile_dir.mkdir(parents=True, exist_ok=True)
+    port = _resolve_attach_port(config, profile_dir)
 
     if force_restart:
         killed = _kill_shadow_processes(profile_dir, port, log)
@@ -94,7 +107,7 @@ def attach_or_recover_shadow_browser(
         if attached:
             return attached
 
-    port_open = _port_is_open(port)
+    port_open = port > 0 and _port_is_open(port)
     if port_open:
         shadow_processes = _find_shadow_processes(profile_dir, port)
         if shadow_processes:
@@ -109,7 +122,15 @@ def attach_or_recover_shadow_browser(
     if not auto_launch:
         raise ShadowBrowserError("影子浏览器未启动。请先点击“重新登录”打开浏览器。")
 
-    process = _launch_shadow_browser(chrome_path, profile_dir, port, visible=visible)
+    launch_port = _resolve_launch_port(config)
+    _remove_devtools_active_port(profile_dir)
+    process = _launch_shadow_browser(chrome_path, profile_dir, launch_port, visible=visible, startup_url=_resolve_startup_url(config))
+    if launch_port == 0:
+        endpoint = _wait_for_devtools_active_port(profile_dir)
+        if endpoint is None:
+            _kill_shadow_processes(profile_dir, 0, log)
+            raise ShadowBrowserError("登录窗口启动异常：Chrome 未生成 DevToolsActivePort。")
+        port = endpoint.port
     session = _wait_for_attach(chrome_path, profile_dir, port, launched=True, restarted=force_restart)
     if session.pid is None:
         session.pid = process.pid
@@ -132,20 +153,108 @@ def ensure_shadow_browser(
 
 
 def show_shadow_browser_for_login(config: Mapping[str, Any], log: Callable[[str], None]) -> ShadowBrowserSession:
-    return ensure_shadow_browser(config=config, log=log, force_restart=True, visible=True)
+    session = ensure_shadow_browser(config=config, log=log, force_restart=True, visible=True)
+    _open_startup_page_for_login(session.page, _resolve_startup_url(config), log)
+    if not show_shadow_browser_window(session.page, log):
+        log("影子浏览器已按可见窗口参数启动，但运行时窗口位置校正失败。")
+    return session
+
+
+def launch_shadow_browser_for_login(config: Mapping[str, Any], log: Callable[[str], None]) -> ShadowBrowserSession:
+    chrome_path = resolve_chrome_path(config)
+    port = _resolve_launch_port(config)
+    profile_dir = _resolve_profile_dir(config)
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    kill_drission_temp_browsers(port, log)
+
+    if port > 0 and _port_is_open(port):
+        shadow_processes = _find_shadow_processes(profile_dir, port)
+        if shadow_processes:
+            _kill_process_list(shadow_processes, log)
+            if not _wait_for_port_close(port, timeout=6):
+                raise ShadowBrowserError(f"影子浏览器端口 {port} 清理失败，请稍后重试。")
+        else:
+            raise PortOccupiedError(f"调试端口 {port} 已被其他程序占用，无法启动登录窗口。")
+
+    _remove_devtools_active_port(profile_dir)
+    process = _launch_shadow_browser(
+        chrome_path=chrome_path,
+        profile_dir=profile_dir,
+        port=port,
+        visible=True,
+        startup_url=LOGIN_START_URL,
+    )
+    runtime_port = port
+    if port == 0:
+        endpoint = _wait_for_devtools_active_port(profile_dir)
+        if endpoint is None:
+            _kill_shadow_processes(profile_dir, 0, log)
+            raise ShadowBrowserError("登录窗口启动异常：Chrome 未生成 DevToolsActivePort。")
+        runtime_port = endpoint.port
+    log(f"登录窗口已打开（PID={process.pid}，端口={runtime_port}）。")
+    return ShadowBrowserSession(
+        page=None,
+        chrome_path=chrome_path,
+        profile_dir=str(profile_dir),
+        port=runtime_port,
+        pid=process.pid,
+        launched=True,
+        restarted=False,
+    )
+
+
+def hide_shadow_browser_window(page: Any, log: Callable[[str], None] | None = None) -> bool:
+    # 采集时不再隐藏浏览器。保留函数名兼容旧调用，但实际只校正到可见区域。
+    return show_shadow_browser_window(page, log)
+
+
+def show_shadow_browser_window(page: Any, log: Callable[[str], None] | None = None) -> bool:
+    return _move_shadow_browser_window(page, VISIBLE_POSITION, WINDOW_SIZE, log=log, action_name="显示影子浏览器")
 
 
 def shutdown_shadow_browser(config: Mapping[str, Any], log: Callable[[str], None]) -> int:
     profile_dir = _resolve_profile_dir(config)
-    port = _resolve_port(config)
+    port = _resolve_attach_port(config, profile_dir)
     killed = _kill_shadow_processes(profile_dir, port, log)
-    if killed and not _wait_for_port_close(port, timeout=6):
+    if killed and port > 0 and not _wait_for_port_close(port, timeout=6):
         raise ShadowBrowserError(f"影子浏览器端口 {port} 仍未释放。")
     return killed
 
 
-def build_shadow_launch_command(chrome_path: str, port: int, profile_dir: Path, visible: bool) -> list[str]:
-    position = VISIBLE_POSITION if visible else HIDDEN_POSITION
+def is_shadow_browser_running(config: Mapping[str, Any]) -> bool:
+    profile_dir = _resolve_profile_dir(config)
+    port = _resolve_attach_port(config, profile_dir)
+    expected_pid = int(config.get("shadowChromePid") or 0)
+    processes = _find_shadow_processes(profile_dir, port)
+    if not expected_pid:
+        return bool(processes)
+    for process in processes:
+        if process.pid == expected_pid:
+            return True
+    return bool(processes)
+
+
+def shadow_browser_closed_reason(config: Mapping[str, Any]) -> str:
+    expected_pid = _positive_int(config.get("shadowChromePid"))
+    active_port = _positive_int(config.get("activeChromePort"))
+    if expected_pid <= 0:
+        return ""
+    if not psutil.pid_exists(expected_pid):
+        return "登录窗口进程已退出。"
+    if active_port > 0 and not _port_is_open(active_port):
+        return f"登录窗口调试端口 {active_port} 已关闭。"
+    return ""
+
+
+def build_shadow_launch_command(
+    chrome_path: str,
+    port: int,
+    profile_dir: Path,
+    visible: bool,
+    startup_url: str = EMPLOYEE_TARGET_URL,
+) -> list[str]:
+    position = VISIBLE_POSITION
+    url = startup_url.strip() or "about:blank"
     return [
         chrome_path,
         f"--remote-debugging-port={port}",
@@ -155,13 +264,18 @@ def build_shadow_launch_command(chrome_path: str, port: int, profile_dir: Path, 
         f"--window-position={position}",
         f"--window-size={WINDOW_SIZE}",
         f"--disk-cache-size={DEFAULT_DISK_CACHE_SIZE}",
-        "--new-window",
-        "about:blank",
+        url,
     ]
 
 
-def _launch_shadow_browser(chrome_path: str, profile_dir: Path, port: int, visible: bool) -> subprocess.Popen[str]:
-    command = build_shadow_launch_command(chrome_path, port, profile_dir, visible=visible)
+def _launch_shadow_browser(
+    chrome_path: str,
+    profile_dir: Path,
+    port: int,
+    visible: bool,
+    startup_url: str,
+) -> subprocess.Popen[str]:
+    command = build_shadow_launch_command(chrome_path, port, profile_dir, visible=visible, startup_url=startup_url)
     creationflags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     return subprocess.Popen(
         command,
@@ -208,8 +322,20 @@ def _try_attach_session(
     except ModuleNotFoundError as exc:
         raise ShadowBrowserError("缺少 DrissionPage，无法接管影子浏览器。") from exc
 
+    if port <= 0:
+        endpoint = _read_devtools_active_port(profile_dir)
+        if endpoint is None:
+            raise ShadowBrowserError("等待登录检测：Chrome 调试端口尚未就绪。")
+        port = endpoint.port
+
+    if _find_drission_temp_processes(port):
+        raise DrissionTempBrowserDetected(f"检测到 DrissionPage 临时浏览器占用端口 {port}。")
+    if _port_is_open(port) and not _find_shadow_processes(profile_dir, port):
+        raise PortOccupiedError(f"调试端口 {port} 已被其他 Chrome 占用，无法接管目标登录窗口。")
+
     co = ChromiumOptions()
-    co.set_local_port(port)
+    co.set_paths(browser_path=chrome_path, local_port=port, user_data_path=str(profile_dir))
+    co.existing_only(True)
     try:
         page = ChromiumPage(co)
         _ = page.title
@@ -227,16 +353,87 @@ def _try_attach_session(
     )
 
 
-def _resolve_port(config: Mapping[str, Any]) -> int:
+def _resolve_launch_port(config: Mapping[str, Any]) -> int:
     try:
-        return int(config.get("chromePort") or DEFAULT_REMOTE_PORT)
+        raw = config.get("chromePort")
+        if raw is None or str(raw).strip() == "":
+            return DEFAULT_REMOTE_PORT
+        return int(raw)
     except Exception:
         return DEFAULT_REMOTE_PORT
+
+
+def _resolve_attach_port(config: Mapping[str, Any], profile_dir: Path) -> int:
+    active_port = _positive_int(config.get("activeChromePort"))
+    if active_port:
+        return active_port
+    endpoint = _read_devtools_active_port(profile_dir)
+    if endpoint is not None:
+        return endpoint.port
+    raw_port = config.get("chromePort")
+    if raw_port is None or str(raw_port).strip() == "":
+        return DEFAULT_REMOTE_PORT
+    try:
+        return int(raw_port)
+    except Exception:
+        return DEFAULT_REMOTE_PORT
+
+
+def _positive_int(raw: Any) -> int:
+    try:
+        value = int(raw)
+    except Exception:
+        return 0
+    return value if value > 0 else 0
 
 
 def _resolve_profile_dir(config: Mapping[str, Any]) -> Path:
     raw = str(config.get("shadowChromeProfileDir") or config.get("chromeUserDataDir") or "").strip()
     return Path(raw) if raw else default_shadow_profile_dir()
+
+
+def _resolve_startup_url(config: Mapping[str, Any]) -> str:
+    return str(config.get("shadowChromeStartupUrl") or EMPLOYEE_TARGET_URL).strip() or EMPLOYEE_TARGET_URL
+
+
+def _move_shadow_browser_window(
+    page: Any,
+    position: str,
+    size: str,
+    log: Callable[[str], None] | None,
+    action_name: str,
+) -> bool:
+    try:
+        x_text, y_text = position.split(",", 1)
+        width_text, height_text = size.split(",", 1)
+        page.set.window.normal()
+        page.set.window.size(int(width_text), int(height_text))
+        page.set.window.location(int(x_text), int(y_text))
+        return True
+    except Exception as exc:
+        if log is not None:
+            log(f"{action_name}失败：{exc}")
+        return False
+
+
+def _open_startup_page_for_login(page: Any, startup_url: str, log: Callable[[str], None]) -> None:
+    try:
+        current_url = str(getattr(page, "url", "") or "")
+        if _is_noise_or_unrelated_page(current_url):
+            page.get(startup_url)
+            time.sleep(1)
+        log(f"当前接管页面：{getattr(page, 'title', '') or '--'} {getattr(page, 'url', '') or '--'}")
+    except Exception as exc:
+        log(f"登录页导航失败：{exc}")
+
+
+def _is_noise_or_unrelated_page(url: str) -> bool:
+    normalized = str(url or "").strip().lower()
+    if not normalized:
+        return True
+    if normalized.startswith(("about:blank", "chrome://newtab", "chrome://new-tab-page")):
+        return True
+    return "google." in normalized and not any(marker in normalized for marker in ("taobao.com", "tmall.com", "myseller"))
 
 
 def _port_is_open(port: int) -> bool:
@@ -254,6 +451,40 @@ def _wait_for_port_close(port: int, timeout: float) -> bool:
     return not _port_is_open(port)
 
 
+def _read_devtools_active_port(profile_dir: Path) -> DevToolsEndpoint | None:
+    path = profile_dir / "DevToolsActivePort"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return None
+    try:
+        port = int(lines[0])
+    except ValueError:
+        return None
+    browser_path = lines[1] if len(lines) > 1 else ""
+    return DevToolsEndpoint(port=port, browser_path=browser_path)
+
+
+def _wait_for_devtools_active_port(profile_dir: Path, timeout: float = 8.0) -> DevToolsEndpoint | None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        endpoint = _read_devtools_active_port(profile_dir)
+        if endpoint is not None:
+            return endpoint
+        time.sleep(0.2)
+    return _read_devtools_active_port(profile_dir)
+
+
+def _remove_devtools_active_port(profile_dir: Path) -> None:
+    try:
+        (profile_dir / "DevToolsActivePort").unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def _find_shadow_pid(profile_dir: Path, port: int) -> int | None:
     processes = _find_shadow_processes(profile_dir, port)
     return processes[0].pid if processes else None
@@ -267,6 +498,30 @@ def _find_shadow_processes(profile_dir: Path, port: int) -> list[psutil.Process]
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
         if _cmdline_matches_shadow_process(cmdline, profile_dir, port, process.info.get("name")):
+            matches.append(process)
+    return matches
+
+
+def kill_drission_temp_browsers(port: int, log: Callable[[str], None]) -> int:
+    if port <= 0:
+        return 0
+    processes = _find_drission_temp_processes(port)
+    if not processes:
+        return 0
+    _kill_process_list(processes, log)
+    return len(processes)
+
+
+def _find_drission_temp_processes(port: int) -> list[psutil.Process]:
+    if port <= 0:
+        return []
+    matches: list[psutil.Process] = []
+    for process in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            cmdline = process.info.get("cmdline") or []
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+        if _cmdline_matches_drission_temp_process(cmdline, port, process.info.get("name")):
             matches.append(process)
     return matches
 
@@ -306,8 +561,30 @@ def _cmdline_matches_shadow_process(
     if process_name and "chrome" not in process_name.lower():
         return False
     normalized_target = _normalize_path(str(profile_dir))
-    matched_port = False
     matched_profile = False
+    for index, token in enumerate(parts):
+        value = token.strip()
+        if value.startswith("--user-data-dir="):
+            matched_profile = _normalize_path(value.split("=", 1)[1]) == normalized_target
+            continue
+        if value == "--user-data-dir" and index + 1 < len(parts):
+            matched_profile = _normalize_path(parts[index + 1]) == normalized_target
+    return matched_profile
+
+
+def _cmdline_matches_drission_temp_process(
+    cmdline: Iterable[str],
+    port: int,
+    process_name: str | None = None,
+) -> bool:
+    parts = [str(item) for item in cmdline if item]
+    if not parts:
+        return False
+    if process_name and "chrome" not in process_name.lower():
+        return False
+    matched_port = False
+    matched_drission_profile = False
+    marker = f"\\temp\\drissionpage\\userdata\\{port}"
     for index, token in enumerate(parts):
         value = token.strip()
         if value == f"--remote-debugging-port={port}":
@@ -317,11 +594,11 @@ def _cmdline_matches_shadow_process(
             matched_port = True
             continue
         if value.startswith("--user-data-dir="):
-            matched_profile = _normalize_path(value.split("=", 1)[1]) == normalized_target
+            matched_drission_profile = marker in _normalize_path(value.split("=", 1)[1])
             continue
         if value == "--user-data-dir" and index + 1 < len(parts):
-            matched_profile = _normalize_path(parts[index + 1]) == normalized_target
-    return matched_port and matched_profile
+            matched_drission_profile = marker in _normalize_path(parts[index + 1])
+    return matched_port and matched_drission_profile
 
 
 def _normalize_path(raw: str) -> str:

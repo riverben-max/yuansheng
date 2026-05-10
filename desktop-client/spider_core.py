@@ -69,7 +69,10 @@ class PageSnapshot:
 
 def snapshot_requires_login(snapshot: PageSnapshot) -> bool:
     parsed = urlparse(snapshot.url or "")
-    if not parsed.netloc.endswith("myseller.taobao.com"):
+    host = parsed.netloc.lower()
+    if host in {"loginmyseller.taobao.com", "login.taobao.com"}:
+        return True
+    if host != "myseller.taobao.com":
         return True
     text = f"{snapshot.title}\n{snapshot.text}"
     return any(marker in text for marker in LOGIN_MARKERS)
@@ -332,6 +335,8 @@ def extract_number(value: Any) -> Optional[float]:
 
 
 def merge_capture_payloads(payloads: Iterable[Mapping[str, Any]]) -> Dict[str, Any]:
+    payload_list = list(payloads)
+    _validate_payload_identity(payload_list)
     merged = {
         "loginAccount": None,
         "recordDate": None,
@@ -347,7 +352,7 @@ def merge_capture_payloads(payloads: Iterable[Mapping[str, Any]]) -> Dict[str, A
         "satisfaction": None,
         "rawMetrics": {"rounds": []},
     }
-    for payload in payloads:
+    for payload in payload_list:
         for key in ("loginAccount", "recordDate", "subAccount"):
             if merged[key] is None and payload.get(key):
                 merged[key] = payload.get(key)
@@ -368,6 +373,20 @@ def merge_capture_payloads(payloads: Iterable[Mapping[str, Any]]) -> Dict[str, A
         if raw:
             merged["rawMetrics"]["rounds"].append(raw)
     return merged
+
+
+def _validate_payload_identity(payloads: Iterable[Mapping[str, Any]]) -> None:
+    expected: Dict[str, Any] = {}
+    for payload in payloads:
+        for key in ("loginAccount", "recordDate", "subAccount"):
+            value = payload.get(key)
+            if value in (None, ""):
+                continue
+            if key not in expected:
+                expected[key] = value
+                continue
+            if str(expected[key]) != str(value):
+                raise ValueError(f"多轮采集数据 {key} 不一致：{expected[key]} != {value}")
 
 
 def payload_signature(payload: Mapping[str, Any]) -> str:

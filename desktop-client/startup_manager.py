@@ -22,7 +22,7 @@ def ensure_autostart(
         script_path=script_path,
         frozen=frozen,
     )
-    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_SUBKEY, 0, winreg.KEY_ALL_ACCESS) as handle:
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_SUBKEY, 0, winreg.KEY_SET_VALUE | winreg.KEY_QUERY_VALUE) as handle:
         if enabled:
             winreg.SetValueEx(handle, app_name, 0, winreg.REG_SZ, command)
             return

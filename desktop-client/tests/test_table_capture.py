@@ -73,6 +73,24 @@ class TableCaptureTests(unittest.TestCase):
         self.assertEqual(merged["wwReplyRate"], 96.2)
         self.assertEqual(merged["satisfaction"], 98.8)
 
+    def test_merge_round_payloads_rejects_mixed_employee(self) -> None:
+        with self.assertRaisesRegex(ValueError, "subAccount.*不一致"):
+            merge_capture_payloads(
+                [
+                    {"loginAccount": "远盛电商", "recordDate": "2026-04-21", "subAccount": "林志玲", "consultationCount": 20},
+                    {"loginAccount": "远盛电商", "recordDate": "2026-04-21", "subAccount": "小王", "wwReplyRate": 96.2},
+                ]
+            )
+
+    def test_merge_round_payloads_rejects_mixed_record_date(self) -> None:
+        with self.assertRaisesRegex(ValueError, "recordDate.*不一致"):
+            merge_capture_payloads(
+                [
+                    {"loginAccount": "远盛电商", "recordDate": "2026-04-21", "subAccount": "林志玲", "consultationCount": 20},
+                    {"loginAccount": "远盛电商", "recordDate": "2026-04-22", "subAccount": "林志玲", "wwReplyRate": 96.2},
+                ]
+            )
+
     def test_table_result_to_payload_raises_when_current_employee_missing(self) -> None:
         result = {
             "ok": True,
