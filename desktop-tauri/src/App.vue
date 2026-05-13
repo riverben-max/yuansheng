@@ -291,6 +291,8 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { ElMessage } from "element-plus/es/components/message/index.mjs";
 import { ElMessageBox } from "element-plus/es/components/message-box/index.mjs";
 import {
@@ -304,13 +306,14 @@ import {
   selectedAccountVisible,
   summarizeAccounts,
 } from "./lib/accountMatrix";
-import { buildPlatformSummaries, platformActionState, platformSummaryText, uploadFailureText } from "./lib/platformOverview";
+import { accountResultText, buildPlatformSummaries, isAccountCaptureReady, platformActionState, platformSummaryText, uploadFailureText } from "./lib/platformOverview";
 import { runSidecar, subscribeSidecarEvents } from "./lib/sidecar";
 import {
   LOGIN_POLL_FIRST_DELAY_MS,
   LOGIN_POLL_INTERVAL_MS,
   LOGIN_POLL_REQUEST_TIMEOUT_MS,
   LOGIN_POLL_TIMEOUT_MS,
+  createLoginPollGate,
   loginPollFailureState,
 } from "./lib/loginPollingPolicy";
 import { captureMessageState } from "./lib/captureMessage";
@@ -395,7 +398,7 @@ const shortServerUrl = computed(() => (settings.serverUrl || "--").replace(/^htt
 const latestOverviewAccount = computed(() => {
   const candidates = accounts.value
     .filter((account) => account.lastCaptureSummary || account.lastFailureReason || account.lastError || account.lastResult)
-    .map((account) => ({ account, time: Date.parse(accountEventTime(account).replace(/-/g, "/")) || 0 }))
+    .map((account) => ({ account, time: Date.parse(accountEventTime(account)) || 0 }))
     .sort((left, right) => right.time - left.time);
   return candidates[0]?.account || null;
 });
@@ -471,19 +474,22 @@ const displayedStatusType = computed(() => {
 });
 
 let unlistenSidecar = null;
+let unlistenTrayQuit = null;
 let loginPollTimer = null;
 let loginPollFirstTimer = null;
 let loginPollStartedAt = 0;
-let loginPollRunning = false;
+const loginPollGate = createLoginPollGate();
 
 onMounted(async () => {
   unlistenSidecar = await subscribeSidecarEvents(handleSidecarEvent);
+  unlistenTrayQuit = await listen("tray-quit", handleTrayQuit);
   await refreshState();
   checkUpdate();
 });
 
 onUnmounted(() => {
   if (unlistenSidecar) unlistenSidecar();
+  if (unlistenTrayQuit) unlistenTrayQuit();
   stopLoginPolling();
 });
 
@@ -513,9 +519,11 @@ async function refreshState() {
 }
 
 async function checkUpdate() {
-  const result = await callSidecar("check_update");
+  const result = await callSidecar("check_update", {}, { suppressError: true });
   if (result?.ok && result.data?.updateAvailable) {
-    ElMessage.success(`发现新版本 ${result.data.latestVersion}，当前版本 ${result.data.currentVersion}，请下载更新。`);
+    ElMessage.success(
+      `发现新版本 ${result.data.latestVersion}，当前版本 ${result.data.currentVersion}，请到发布渠道下载安装。`,
+    );
   }
 }
 
@@ -561,16 +569,24 @@ async function startLogin(account = null) {
 function beginLoginPolling(accountId) {
   activeLoginAccountId.value = accountId;
   loginPollStartedAt = Date.now();
+  const gen = loginPollGate.nextGeneration();
   loginPollFirstTimer = window.setTimeout(() => {
     loginPollFirstTimer = null;
-    void pollLoginOnce(accountId);
+    if (!loginPollGate.isCurrent(gen)) return;
+    void pollLoginOnce(accountId, gen);
     loginPollTimer = window.setInterval(() => {
-      void pollLoginOnce(accountId);
+      if (!loginPollGate.isCurrent(gen)) {
+        window.clearInterval(loginPollTimer);
+        loginPollTimer = null;
+        return;
+      }
+      void pollLoginOnce(accountId, gen);
     }, LOGIN_POLL_INTERVAL_MS);
   }, LOGIN_POLL_FIRST_DELAY_MS);
 }
 
 function stopLoginPolling() {
+  loginPollGate.stop();
   if (loginPollFirstTimer) {
     window.clearTimeout(loginPollFirstTimer);
     loginPollFirstTimer = null;
@@ -580,12 +596,11 @@ function stopLoginPolling() {
     loginPollTimer = null;
   }
   activeLoginAccountId.value = "";
-  loginPollRunning = false;
   loginBusy.value = false;
 }
 
-async function pollLoginOnce(accountId) {
-  if (!accountId || accountId !== activeLoginAccountId.value || loginPollRunning) return;
+async function pollLoginOnce(accountId, gen) {
+  if (!loginPollGate.canRun(accountId, activeLoginAccountId.value, gen)) return;
   if (Date.now() - loginPollStartedAt > LOGIN_POLL_TIMEOUT_MS) {
     stopLoginPolling();
     runtimeStatus.value = "登录超时";
@@ -594,13 +609,14 @@ async function pollLoginOnce(accountId) {
     return;
   }
 
-  loginPollRunning = true;
+  if (!loginPollGate.beginRun(gen)) return;
   try {
     const result = await withTimeout(
       callSidecar("poll_login", { accountId }, { suppressError: true }),
       LOGIN_POLL_REQUEST_TIMEOUT_MS,
       { ok: false, timeout: true, message: "登录检测超时，请重新点击该账号登录" },
     );
+    if (!loginPollGate.isCurrent(gen)) return;
     if (!result?.ok) {
       const failure = loginPollFailureState(result);
       runtimeStatus.value = failure.status;
@@ -619,6 +635,7 @@ async function pollLoginOnce(accountId) {
       ElMessage.success("登录成功，Cookie 已保存");
       return;
     }
+    if (!loginPollGate.isCurrent(gen)) return;
     const status = result.data?.status || "等待扫码";
     runtimeStatus.value = status;
     statusDanger.value = !["等待扫码", "等待登录检测", "正在清理临时浏览器"].includes(status);
@@ -627,7 +644,7 @@ async function pollLoginOnce(accountId) {
       ElMessage.warning(result.data?.message || status);
     }
   } finally {
-    loginPollRunning = false;
+    loginPollGate.endRun(gen);
   }
 }
 
@@ -687,10 +704,6 @@ function openAccountDialog(account = null) {
   });
 }
 
-function isAccountCaptureReady(account) {
-  return account?.enabled && (["已登录", "采集成功"].includes(String(account.loginStatus || "").trim()) || accountCookieStatus(account) === "已保存");
-}
-
 function isNeutralRuntimeStatus(status) {
   return ["待命", "已登录", "已全部登录", "部分已登录", "请先登录", "无启用账号"].includes(String(status || "").trim());
 }
@@ -723,18 +736,19 @@ async function deleteSelectedAccount() {
 }
 
 async function deleteAccount(account) {
-  await ElMessageBox.confirm(`删除登录账户“${account.displayName || account.id}”？`, "删除确认", {
+  const label = `${platformLabel(account.platform)} - ${account.displayName || account.shopName || account.id}`;
+  await ElMessageBox.confirm(`删除登录账户"${label}"？\n\n该账户的登录凭证、采集记录将被永久删除。`, "删除确认", {
     confirmButtonText: "删除",
     cancelButtonText: "取消",
     type: "warning",
   });
   let removeProfile = false;
   try {
-    await ElMessageBox.confirm("是否同时删除该账号的本地 Chrome 档案目录？删除后需重新扫码登录。", "清理本地档案", {
-      confirmButtonText: "删除目录",
-      cancelButtonText: "保留目录",
-      type: "warning",
-    });
+    await ElMessageBox.confirm(
+      `是否同时删除该账号的本地 Chrome 档案目录？\n\n删除后 Chrome 中保存的登录状态将被清除，下次需要重新扫码登录。`,
+      "清理本地档案",
+      { confirmButtonText: "删除目录", cancelButtonText: "保留目录", type: "warning" },
+    );
     removeProfile = true;
   } catch {
     // 用户选择保留目录
@@ -769,22 +783,6 @@ function accountCookieStatusType(account) {
 
 function accountLastCaptureAt(account) {
   return account?.lastCaptureSummary?.capturedAt || account?.lastCaptureAt || "--";
-}
-
-function accountResultText(account) {
-  if (account?.lastCaptureSummary?.ok) {
-    return account.lastCaptureSummary.uploaded ? "采集成功" : uploadFailureText(account.lastCaptureSummary.uploadMessage);
-  }
-  const reason = String(account?.lastFailureReason || "").trim();
-  if (reason) return reason;
-  const status = String(account?.loginStatus || "").trim();
-  if (status === "采集暂未接入") return "采集暂未接入";
-  if (status === "需要重新登录") return "需要重新登录";
-  if (status === "采集失败") return "采集失败";
-  const result = String(account?.lastResult || "").trim();
-  if (result === "京东采集暂未接入") return "采集暂未接入";
-  if (result) return "采集成功";
-  return "尚未采集";
 }
 
 function accountResultTagType(account) {
@@ -830,6 +828,21 @@ async function callSidecar(command, payload = {}, options = {}) {
     if (!options.suppressError) ElMessage.error(String(error));
     return { ok: false, message: String(error) };
   }
+}
+
+async function handleTrayQuit() {
+  if (settings.exitRequiresConfirm) {
+    try {
+      await ElMessageBox.confirm("确定退出远盛数据助手？", "退出确认", {
+        confirmButtonText: "退出",
+        cancelButtonText: "取消",
+        type: "warning",
+      });
+    } catch {
+      return;
+    }
+  }
+  await invoke("quit_app");
 }
 
 function handleSidecarEvent(event) {

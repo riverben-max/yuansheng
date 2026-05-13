@@ -7,6 +7,8 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
 
 const DEFAULT_SIDECAR_TIMEOUT_SECS: u64 = 60;
@@ -19,6 +21,11 @@ async fn sidecar_command(app: AppHandle, command: String, payload: Option<Value>
     tauri::async_runtime::spawn_blocking(move || sidecar_command_blocking(app, command, payload))
         .await
         .map_err(|error| format!("sidecar 后台任务异常：{error}"))?
+}
+
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.exit(0);
 }
 
 fn sidecar_command_blocking(app: AppHandle, command: String, payload: Option<Value>) -> Result<Value, String> {
@@ -36,8 +43,12 @@ fn sidecar_command_blocking(app: AppHandle, command: String, payload: Option<Val
         .ok_or_else(|| "无法读取 sidecar stderr。".to_string())?;
 
     // Read stdout and stderr concurrently on separate threads to avoid pipe deadlock.
-    let stdout_handle = std::thread::spawn(move || read_pipe_bytes(stdout));
-    let stderr_handle = std::thread::spawn(move || read_pipe_bytes(stderr));
+    let stdout_handle =
+        std::thread::Builder::new().name("sidecar-stdout".into()).spawn(move || read_pipe_bytes(stdout))
+            .map_err(|error| format!("无法创建 stdout 读取线程：{error}"))?;
+    let stderr_handle =
+        std::thread::Builder::new().name("sidecar-stderr".into()).spawn(move || read_pipe_bytes(stderr))
+            .map_err(|error| format!("无法创建 stderr 读取线程：{error}"))?;
 
     // Wait for process exit with timeout, polling so we can kill on timeout.
     let pid = process.id();
@@ -161,9 +172,16 @@ fn build_sidecar_process(
 
     // 3. Development: Python script relative to the Cargo manifest.
     let script = dev_sidecar_script()?;
-    let mut python = Command::new("python");
-    python.arg(script);
-    spawn_sidecar(python, command, payload_text)
+    let mut last_err = "".to_string();
+    for python_cmd in &["python3", "python", "py"] {
+        let mut cmd = Command::new(python_cmd);
+        cmd.arg(&script);
+        match spawn_sidecar(cmd, command, payload_text) {
+            Ok(child) => return Ok(child),
+            Err(e) => { last_err = e; }
+        }
+    }
+    return Err(format!("未找到 Python 解释器（已尝试 python3, python, py），可设置 YUANSHENG_SIDECAR_EXE 环境变量指定 sidecar 路径。最近错误：{last_err}"));
 }
 
 fn spawn_sidecar(
@@ -200,10 +218,90 @@ fn dev_sidecar_script() -> Result<PathBuf, String> {
         .map_err(|error| format!("找不到 sidecar_cli.py，可设置 YUANSHENG_SIDECAR_SCRIPT 环境变量指定路径：{error}"))
 }
 
+fn check_leftover_processes(app: &AppHandle) {
+    let candidates = &["yuansheng-sidecar.exe"];
+    let mut found = Vec::new();
+    for name in candidates {
+        let output = Command::new("tasklist")
+            .args(["/FI", &format!("IMAGENAME eq {name}"), "/NH", "/FO", "CSV"])
+            .output();
+        if let Ok(out) = output {
+            let text = String::from_utf8_lossy(&out.stdout);
+            if text.contains(name) {
+                found.push(name.to_string());
+            }
+        }
+    }
+    if !found.is_empty() {
+        let _ = app.emit(
+            "sidecar-event",
+            serde_json::json!({
+                "type": "log",
+                "message": format!("检测到残留进程：{}。建议通过任务管理器手动终止。", found.join("、"))
+            }),
+        );
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![sidecar_command])
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
+        .setup(|app| {
+            // 检测并提示残留的 sidecar / Chrome 僵尸进程
+            check_leftover_processes(app.app_handle());
+
+            let show = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &quit])?;
+
+            let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().expect("无法加载应用图标").clone())
+                .menu(&menu)
+                .on_menu_event(|app, event| {
+                    match event.id.as_ref() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "quit" => {
+                            let _ = app.emit("tray-quit", ());
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let _ = window.hide();
+                api.prevent_close();
+            }
+        })
+        .invoke_handler(tauri::generate_handler![sidecar_command, quit_app])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
