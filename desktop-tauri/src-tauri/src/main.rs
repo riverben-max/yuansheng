@@ -43,8 +43,12 @@ fn sidecar_command_blocking(app: AppHandle, command: String, payload: Option<Val
         .ok_or_else(|| "无法读取 sidecar stderr。".to_string())?;
 
     // Read stdout and stderr concurrently on separate threads to avoid pipe deadlock.
-    let stdout_handle = std::thread::spawn(move || read_pipe_bytes(stdout));
-    let stderr_handle = std::thread::spawn(move || read_pipe_bytes(stderr));
+    let stdout_handle =
+        std::thread::Builder::new().name("sidecar-stdout".into()).spawn(move || read_pipe_bytes(stdout))
+            .map_err(|error| format!("无法创建 stdout 读取线程：{error}"))?;
+    let stderr_handle =
+        std::thread::Builder::new().name("sidecar-stderr".into()).spawn(move || read_pipe_bytes(stderr))
+            .map_err(|error| format!("无法创建 stderr 读取线程：{error}"))?;
 
     // Wait for process exit with timeout, polling so we can kill on timeout.
     let pid = process.id();

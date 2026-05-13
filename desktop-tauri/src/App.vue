@@ -398,7 +398,7 @@ const shortServerUrl = computed(() => (settings.serverUrl || "--").replace(/^htt
 const latestOverviewAccount = computed(() => {
   const candidates = accounts.value
     .filter((account) => account.lastCaptureSummary || account.lastFailureReason || account.lastError || account.lastResult)
-    .map((account) => ({ account, time: Date.parse(accountEventTime(account).replace(/-/g, "/")) || 0 }))
+    .map((account) => ({ account, time: Date.parse(accountEventTime(account)) || 0 }))
     .sort((left, right) => right.time - left.time);
   return candidates[0]?.account || null;
 });

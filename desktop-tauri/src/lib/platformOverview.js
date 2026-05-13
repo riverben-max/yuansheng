@@ -52,7 +52,7 @@ export function platformActionState(summary) {
 function findLatestCaptureAccount(accounts) {
   return accounts
     .filter((account) => accountCaptureTime(account))
-    .map((account) => ({ account, time: Date.parse(accountCaptureTime(account).replace(/-/g, "/")) || 0 }))
+    .map((account) => ({ account, time: Date.parse(accountCaptureTime(account)) || 0 }))
     .sort((left, right) => right.time - left.time)[0]?.account;
 }
 
