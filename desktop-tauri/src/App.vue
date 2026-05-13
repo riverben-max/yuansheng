@@ -293,7 +293,6 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { check } from "@tauri-apps/plugin-updater";
 import { ElMessage } from "element-plus/es/components/message/index.mjs";
 import { ElMessageBox } from "element-plus/es/components/message-box/index.mjs";
 import {
@@ -314,6 +313,7 @@ import {
   LOGIN_POLL_INTERVAL_MS,
   LOGIN_POLL_REQUEST_TIMEOUT_MS,
   LOGIN_POLL_TIMEOUT_MS,
+  createLoginPollGate,
   loginPollFailureState,
 } from "./lib/loginPollingPolicy";
 import { captureMessageState } from "./lib/captureMessage";
@@ -478,7 +478,7 @@ let unlistenTrayQuit = null;
 let loginPollTimer = null;
 let loginPollFirstTimer = null;
 let loginPollStartedAt = 0;
-let loginPollGeneration = 0;
+const loginPollGate = createLoginPollGate();
 
 onMounted(async () => {
   unlistenSidecar = await subscribeSidecarEvents(handleSidecarEvent);
@@ -519,26 +519,11 @@ async function refreshState() {
 }
 
 async function checkUpdate() {
-  try {
-    const update = await check();
-    if (!update) return;
-    const { version, body } = update;
-    try {
-      await ElMessageBox.confirm(
-        `发现新版本 v${version}${body ? `\n\n${body}` : ""}`,
-        "软件更新",
-        { confirmButtonText: "立即更新", cancelButtonText: "稍后", type: "info" },
-      );
-    } catch {
-      return;
-    }
-    const loadingMessage = ElMessage({ message: `正在下载 v${version}...`, type: "info", duration: 0 });
-    await update.downloadAndInstall(() => {
-      // 下载完成后应用将自动重启安装
-    });
-    loadingMessage.close();
-  } catch {
-    // 更新检查失败（无端点配置或网络不可用）静默忽略
+  const result = await callSidecar("check_update", {}, { suppressError: true });
+  if (result?.ok && result.data?.updateAvailable) {
+    ElMessage.success(
+      `发现新版本 ${result.data.latestVersion}，当前版本 ${result.data.currentVersion}，请到发布渠道下载安装。`,
+    );
   }
 }
 
@@ -584,13 +569,13 @@ async function startLogin(account = null) {
 function beginLoginPolling(accountId) {
   activeLoginAccountId.value = accountId;
   loginPollStartedAt = Date.now();
-  const gen = ++loginPollGeneration;
+  const gen = loginPollGate.nextGeneration();
   loginPollFirstTimer = window.setTimeout(() => {
     loginPollFirstTimer = null;
-    if (loginPollGeneration !== gen) return;
+    if (!loginPollGate.isCurrent(gen)) return;
     void pollLoginOnce(accountId, gen);
     loginPollTimer = window.setInterval(() => {
-      if (loginPollGeneration !== gen) {
+      if (!loginPollGate.isCurrent(gen)) {
         window.clearInterval(loginPollTimer);
         loginPollTimer = null;
         return;
@@ -601,7 +586,7 @@ function beginLoginPolling(accountId) {
 }
 
 function stopLoginPolling() {
-  loginPollGeneration++;
+  loginPollGate.stop();
   if (loginPollFirstTimer) {
     window.clearTimeout(loginPollFirstTimer);
     loginPollFirstTimer = null;
@@ -615,7 +600,7 @@ function stopLoginPolling() {
 }
 
 async function pollLoginOnce(accountId, gen) {
-  if (!accountId || accountId !== activeLoginAccountId.value || loginPollGeneration !== gen) return;
+  if (!loginPollGate.canRun(accountId, activeLoginAccountId.value, gen)) return;
   if (Date.now() - loginPollStartedAt > LOGIN_POLL_TIMEOUT_MS) {
     stopLoginPolling();
     runtimeStatus.value = "登录超时";
@@ -624,14 +609,14 @@ async function pollLoginOnce(accountId, gen) {
     return;
   }
 
+  if (!loginPollGate.beginRun(gen)) return;
   try {
-    if (loginPollGeneration !== gen) return;
     const result = await withTimeout(
       callSidecar("poll_login", { accountId }, { suppressError: true }),
       LOGIN_POLL_REQUEST_TIMEOUT_MS,
       { ok: false, timeout: true, message: "登录检测超时，请重新点击该账号登录" },
     );
-    if (loginPollGeneration !== gen) return;
+    if (!loginPollGate.isCurrent(gen)) return;
     if (!result?.ok) {
       const failure = loginPollFailureState(result);
       runtimeStatus.value = failure.status;
@@ -650,7 +635,7 @@ async function pollLoginOnce(accountId, gen) {
       ElMessage.success("登录成功，Cookie 已保存");
       return;
     }
-    if (loginPollGeneration !== gen) return;
+    if (!loginPollGate.isCurrent(gen)) return;
     const status = result.data?.status || "等待扫码";
     runtimeStatus.value = status;
     statusDanger.value = !["等待扫码", "等待登录检测", "正在清理临时浏览器"].includes(status);
@@ -659,7 +644,7 @@ async function pollLoginOnce(accountId, gen) {
       ElMessage.warning(result.data?.message || status);
     }
   } finally {
-    // 代数校验替代了 loginPollRunning 布尔值
+    loginPollGate.endRun(gen);
   }
 }
 
@@ -752,23 +737,23 @@ async function deleteSelectedAccount() {
 
 async function deleteAccount(account) {
   const label = `${platformLabel(account.platform)} - ${account.displayName || account.shopName || account.id}`;
-  await ElMessageBox.confirm(`删除登录账户”${label}”？\n\n该账户的登录凭证、采集记录将被永久删除。`, “删除确认”, {
-    confirmButtonText: “删除”,
-    cancelButtonText: “取消”,
-    type: “warning”,
+  await ElMessageBox.confirm(`删除登录账户"${label}"？\n\n该账户的登录凭证、采集记录将被永久删除。`, "删除确认", {
+    confirmButtonText: "删除",
+    cancelButtonText: "取消",
+    type: "warning",
   });
   let removeProfile = false;
   try {
     await ElMessageBox.confirm(
       `是否同时删除该账号的本地 Chrome 档案目录？\n\n删除后 Chrome 中保存的登录状态将被清除，下次需要重新扫码登录。`,
-      “清理本地档案”,
-      { confirmButtonText: “删除目录”, cancelButtonText: “保留目录”, type: “warning” },
+      "清理本地档案",
+      { confirmButtonText: "删除目录", cancelButtonText: "保留目录", type: "warning" },
     );
     removeProfile = true;
   } catch {
     // 用户选择保留目录
   }
-  const result = await callSidecar(“account_delete”, { id: account.id, removeProfile });
+  const result = await callSidecar("account_delete", { id: account.id, removeProfile });
   if (result?.ok) {
     selectedAccount.value = null;
     await refreshState();

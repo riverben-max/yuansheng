@@ -35,13 +35,5 @@
     "resources": {
       "binaries/yuansheng-sidecar.exe": "binaries/"
     }
-  },
-  "plugins": {
-    "updater": {
-      "endpoints": [],
-      "windows": {
-        "installMode": "passive"
-      }
-    }
   }
 }

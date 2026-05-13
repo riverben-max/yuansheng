@@ -219,7 +219,7 @@ fn dev_sidecar_script() -> Result<PathBuf, String> {
 }
 
 fn check_leftover_processes(app: &AppHandle) {
-    let candidates = &["yuansheng-sidecar.exe", "chrome.exe"];
+    let candidates = &["yuansheng-sidecar.exe"];
     let mut found = Vec::new();
     for name in candidates {
         let output = Command::new("tasklist")
@@ -246,7 +246,6 @@ fn check_leftover_processes(app: &AppHandle) {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();

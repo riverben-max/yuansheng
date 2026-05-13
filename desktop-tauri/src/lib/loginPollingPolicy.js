@@ -10,3 +10,43 @@ export function loginPollFailureState(result = {}) {
   }
   return { recoverable: false, status: "登录检测失败", danger: true };
 }
+
+export function createLoginPollGate() {
+  let generation = 0;
+  let runningGeneration = 0;
+
+  return {
+    nextGeneration() {
+      generation += 1;
+      runningGeneration = 0;
+      return generation;
+    },
+    stop() {
+      generation += 1;
+      runningGeneration = 0;
+    },
+    isCurrent(expectedGeneration) {
+      return generation === expectedGeneration;
+    },
+    canRun(accountId, activeAccountId, expectedGeneration) {
+      return Boolean(
+        accountId
+          && accountId === activeAccountId
+          && generation === expectedGeneration
+          && runningGeneration !== expectedGeneration,
+      );
+    },
+    beginRun(expectedGeneration) {
+      if (generation !== expectedGeneration || runningGeneration === expectedGeneration) {
+        return false;
+      }
+      runningGeneration = expectedGeneration;
+      return true;
+    },
+    endRun(expectedGeneration) {
+      if (runningGeneration === expectedGeneration) {
+        runningGeneration = 0;
+      }
+    },
+  };
+}
