@@ -478,7 +478,7 @@ let unlistenTrayQuit = null;
 let loginPollTimer = null;
 let loginPollFirstTimer = null;
 let loginPollStartedAt = 0;
-let loginPollRunning = false;
+let loginPollGeneration = 0;
 
 onMounted(async () => {
   unlistenSidecar = await subscribeSidecarEvents(handleSidecarEvent);
@@ -582,16 +582,24 @@ async function startLogin(account = null) {
 function beginLoginPolling(accountId) {
   activeLoginAccountId.value = accountId;
   loginPollStartedAt = Date.now();
+  const gen = ++loginPollGeneration;
   loginPollFirstTimer = window.setTimeout(() => {
     loginPollFirstTimer = null;
-    void pollLoginOnce(accountId);
+    if (loginPollGeneration !== gen) return;
+    void pollLoginOnce(accountId, gen);
     loginPollTimer = window.setInterval(() => {
-      void pollLoginOnce(accountId);
+      if (loginPollGeneration !== gen) {
+        window.clearInterval(loginPollTimer);
+        loginPollTimer = null;
+        return;
+      }
+      void pollLoginOnce(accountId, gen);
     }, LOGIN_POLL_INTERVAL_MS);
   }, LOGIN_POLL_FIRST_DELAY_MS);
 }
 
 function stopLoginPolling() {
+  loginPollGeneration++;
   if (loginPollFirstTimer) {
     window.clearTimeout(loginPollFirstTimer);
     loginPollFirstTimer = null;
@@ -601,12 +609,11 @@ function stopLoginPolling() {
     loginPollTimer = null;
   }
   activeLoginAccountId.value = "";
-  loginPollRunning = false;
   loginBusy.value = false;
 }
 
-async function pollLoginOnce(accountId) {
-  if (!accountId || accountId !== activeLoginAccountId.value || loginPollRunning) return;
+async function pollLoginOnce(accountId, gen) {
+  if (!accountId || accountId !== activeLoginAccountId.value || loginPollGeneration !== gen) return;
   if (Date.now() - loginPollStartedAt > LOGIN_POLL_TIMEOUT_MS) {
     stopLoginPolling();
     runtimeStatus.value = "登录超时";
@@ -615,13 +622,14 @@ async function pollLoginOnce(accountId) {
     return;
   }
 
-  loginPollRunning = true;
   try {
+    if (loginPollGeneration !== gen) return;
     const result = await withTimeout(
       callSidecar("poll_login", { accountId }, { suppressError: true }),
       LOGIN_POLL_REQUEST_TIMEOUT_MS,
       { ok: false, timeout: true, message: "登录检测超时，请重新点击该账号登录" },
     );
+    if (loginPollGeneration !== gen) return;
     if (!result?.ok) {
       const failure = loginPollFailureState(result);
       runtimeStatus.value = failure.status;
@@ -640,6 +648,7 @@ async function pollLoginOnce(accountId) {
       ElMessage.success("登录成功，Cookie 已保存");
       return;
     }
+    if (loginPollGeneration !== gen) return;
     const status = result.data?.status || "等待扫码";
     runtimeStatus.value = status;
     statusDanger.value = !["等待扫码", "等待登录检测", "正在清理临时浏览器"].includes(status);
@@ -648,7 +657,7 @@ async function pollLoginOnce(accountId) {
       ElMessage.warning(result.data?.message || status);
     }
   } finally {
-    loginPollRunning = false;
+    // 代数校验替代了 loginPollRunning 布尔值
   }
 }
 

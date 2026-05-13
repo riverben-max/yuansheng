@@ -168,9 +168,16 @@ fn build_sidecar_process(
 
     // 3. Development: Python script relative to the Cargo manifest.
     let script = dev_sidecar_script()?;
-    let mut python = Command::new("python");
-    python.arg(script);
-    spawn_sidecar(python, command, payload_text)
+    let mut last_err = "".to_string();
+    for python_cmd in &["python3", "python", "py"] {
+        let mut cmd = Command::new(python_cmd);
+        cmd.arg(&script);
+        match spawn_sidecar(cmd, command, payload_text) {
+            Ok(child) => return Ok(child),
+            Err(e) => { last_err = e; }
+        }
+    }
+    return Err(format!("未找到 Python 解释器（已尝试 python3, python, py），可设置 YUANSHENG_SIDECAR_EXE 环境变量指定 sidecar 路径。最近错误：{last_err}"));
 }
 
 fn spawn_sidecar(
