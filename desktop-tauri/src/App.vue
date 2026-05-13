@@ -303,16 +303,16 @@ import {
   platformLabel,
   selectedAccountVisible,
   summarizeAccounts,
-} from "./accountMatrix";
-import { buildPlatformSummaries, platformActionState, platformSummaryText, uploadFailureText } from "./platformOverview";
-import { runSidecar, subscribeSidecarEvents } from "./sidecar";
+} from "./lib/accountMatrix";
+import { buildPlatformSummaries, platformActionState, platformSummaryText, uploadFailureText } from "./lib/platformOverview";
+import { runSidecar, subscribeSidecarEvents } from "./lib/sidecar";
 import {
   LOGIN_POLL_FIRST_DELAY_MS,
   LOGIN_POLL_INTERVAL_MS,
   LOGIN_POLL_REQUEST_TIMEOUT_MS,
   LOGIN_POLL_TIMEOUT_MS,
   loginPollFailureState,
-} from "./loginPollingPolicy";
+} from "./lib/loginPollingPolicy";
 
 const activeTab = ref("capture");
 const captureBusy = ref(false);

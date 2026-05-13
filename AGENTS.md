@@ -17,3 +17,12 @@
 - 不要误改外层副本 `D:\Tools\work_project\desktop-tauri` 或 `D:\Tools\work_project\desktop-client`。
 - 所有文件使用 UTF-8 无 BOM；包含中文的文件保持 LF 换行。
 - 后端由用户在 IntelliJ IDEA 中用 JDK 17 运行；不要自行启动或重启后端服务。
+
+## 桌面端前端结构约束
+
+- `desktop-tauri/src` 根目录只保留入口级文件，例如 `App.vue`、`main.js`、全局样式和少量启动配置。
+- 纯 JS 工具、状态计算、sidecar 通信、轮询策略等放在 `desktop-tauri/src/lib/`，测试文件尽量与对应模块放在同一目录。
+- 页面级 Vue 组件后续放在 `desktop-tauri/src/views/`，不要继续把完整页面堆进 `App.vue`。
+- 可复用 UI 组件后续放在 `desktop-tauri/src/components/`，例如平台卡片、账号表格、运行日志、设置面板、弹窗。
+- 平台差异和平台定义后续放在 `desktop-tauri/src/platforms/`；新增平台不要直接把平台专属判断散落到 `App.vue`。
+- 结构整理应分步提交，每一步都要保持 `npm run build` 和对应前端测试可通过。
