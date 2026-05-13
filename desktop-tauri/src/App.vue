@@ -291,6 +291,9 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { check } from "@tauri-apps/plugin-updater";
 import { ElMessage } from "element-plus/es/components/message/index.mjs";
 import { ElMessageBox } from "element-plus/es/components/message-box/index.mjs";
 import {
@@ -471,6 +474,7 @@ const displayedStatusType = computed(() => {
 });
 
 let unlistenSidecar = null;
+let unlistenTrayQuit = null;
 let loginPollTimer = null;
 let loginPollFirstTimer = null;
 let loginPollStartedAt = 0;
@@ -478,12 +482,14 @@ let loginPollRunning = false;
 
 onMounted(async () => {
   unlistenSidecar = await subscribeSidecarEvents(handleSidecarEvent);
+  unlistenTrayQuit = await listen("tray-quit", handleTrayQuit);
   await refreshState();
   checkUpdate();
 });
 
 onUnmounted(() => {
   if (unlistenSidecar) unlistenSidecar();
+  if (unlistenTrayQuit) unlistenTrayQuit();
   stopLoginPolling();
 });
 
@@ -513,9 +519,24 @@ async function refreshState() {
 }
 
 async function checkUpdate() {
-  const result = await callSidecar("check_update");
-  if (result?.ok && result.data?.updateAvailable) {
-    ElMessage.success(`发现新版本 ${result.data.latestVersion}，当前版本 ${result.data.currentVersion}，请下载更新。`);
+  try {
+    const update = await check();
+    if (!update) return;
+    const { version, body } = update;
+    try {
+      await ElMessageBox.confirm(
+        `发现新版本 v${version}${body ? `\n\n${body}` : ""}`,
+        "软件更新",
+        { confirmButtonText: "立即更新", cancelButtonText: "稍后", type: "info" },
+      );
+    } catch {
+      return;
+    }
+    await update.downloadAndInstall((progress) => {
+      // 可选：显示下载进度
+    });
+  } catch {
+    // 更新检查失败（无端点配置或网络不可用）静默忽略
   }
 }
 
@@ -830,6 +851,21 @@ async function callSidecar(command, payload = {}, options = {}) {
     if (!options.suppressError) ElMessage.error(String(error));
     return { ok: false, message: String(error) };
   }
+}
+
+async function handleTrayQuit() {
+  if (settings.exitRequiresConfirm) {
+    try {
+      await ElMessageBox.confirm("确定退出远盛数据助手？", "退出确认", {
+        confirmButtonText: "退出",
+        cancelButtonText: "取消",
+        type: "warning",
+      });
+    } catch {
+      return;
+    }
+  }
+  await invoke("quit_app");
 }
 
 function handleSidecarEvent(event) {
