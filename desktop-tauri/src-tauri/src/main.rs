@@ -223,7 +223,7 @@ fn main() {
             let menu = Menu::with_items(app, &[&show, &quit])?;
 
             let _tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(app.default_window_icon().expect("无法加载应用图标").clone())
                 .menu(&menu)
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
