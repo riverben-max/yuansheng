@@ -214,6 +214,31 @@ fn dev_sidecar_script() -> Result<PathBuf, String> {
         .map_err(|error| format!("找不到 sidecar_cli.py，可设置 YUANSHENG_SIDECAR_SCRIPT 环境变量指定路径：{error}"))
 }
 
+fn check_leftover_processes(app: &AppHandle) {
+    let candidates = &["yuansheng-sidecar.exe", "chrome.exe"];
+    let mut found = Vec::new();
+    for name in candidates {
+        let output = Command::new("tasklist")
+            .args(["/FI", &format!("IMAGENAME eq {name}"), "/NH", "/FO", "CSV"])
+            .output();
+        if let Ok(out) = output {
+            let text = String::from_utf8_lossy(&out.stdout);
+            if text.contains(name) {
+                found.push(name.to_string());
+            }
+        }
+    }
+    if !found.is_empty() {
+        let _ = app.emit(
+            "sidecar-event",
+            serde_json::json!({
+                "type": "log",
+                "message": format!("检测到残留进程：{}。建议通过任务管理器手动终止。", found.join("、"))
+            }),
+        );
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -225,6 +250,9 @@ fn main() {
             }
         }))
         .setup(|app| {
+            // 检测并提示残留的 sidecar / Chrome 僵尸进程
+            check_leftover_processes(app.app_handle());
+
             let show = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;

@@ -60,22 +60,25 @@ function accountCaptureTime(account) {
   return account?.lastCaptureSummary?.capturedAt || account?.lastCaptureAt || "";
 }
 
-function isAccountCaptureReady(account) {
+export function isAccountCaptureReady(account) {
   const status = String(account?.loginStatus || "").trim();
   const cookieStatus = String(account?.cookieStatus || "").trim();
   return account?.enabled && (["已登录", "采集成功"].includes(status) || cookieStatus === "已保存" || Boolean(account?.cookieUpdatedAt || account?.cookieSummary));
 }
 
-function accountResultText(account) {
+export function accountResultText(account) {
   if (account?.lastCaptureSummary?.ok) {
     return account.lastCaptureSummary.uploaded ? "采集成功" : uploadFailureText(account.lastCaptureSummary.uploadMessage);
   }
   const reason = String(account?.lastFailureReason || "").trim();
   if (reason) return reason;
   const status = String(account?.loginStatus || "").trim();
+  if (status === "采集暂未接入") return "采集暂未接入";
   if (status === "需要重新登录") return "需要重新登录";
   if (status === "采集失败") return "采集失败";
-  if (account?.lastResult) return "采集成功";
+  const result = String(account?.lastResult || "").trim();
+  if (result === "京东采集暂未接入") return "采集暂未接入";
+  if (result) return "采集成功";
   return "尚未采集";
 }
 

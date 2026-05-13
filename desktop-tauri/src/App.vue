@@ -307,7 +307,7 @@ import {
   selectedAccountVisible,
   summarizeAccounts,
 } from "./lib/accountMatrix";
-import { buildPlatformSummaries, platformActionState, platformSummaryText, uploadFailureText } from "./lib/platformOverview";
+import { accountResultText, buildPlatformSummaries, isAccountCaptureReady, platformActionState, platformSummaryText, uploadFailureText } from "./lib/platformOverview";
 import { runSidecar, subscribeSidecarEvents } from "./lib/sidecar";
 import {
   LOGIN_POLL_FIRST_DELAY_MS,
@@ -717,10 +717,6 @@ function openAccountDialog(account = null) {
   });
 }
 
-function isAccountCaptureReady(account) {
-  return account?.enabled && (["已登录", "采集成功"].includes(String(account.loginStatus || "").trim()) || accountCookieStatus(account) === "已保存");
-}
-
 function isNeutralRuntimeStatus(status) {
   return ["待命", "已登录", "已全部登录", "部分已登录", "请先登录", "无启用账号"].includes(String(status || "").trim());
 }
@@ -753,23 +749,24 @@ async function deleteSelectedAccount() {
 }
 
 async function deleteAccount(account) {
-  await ElMessageBox.confirm(`删除登录账户“${account.displayName || account.id}”？`, "删除确认", {
-    confirmButtonText: "删除",
-    cancelButtonText: "取消",
-    type: "warning",
+  const label = `${platformLabel(account.platform)} - ${account.displayName || account.shopName || account.id}`;
+  await ElMessageBox.confirm(`删除登录账户”${label}”？\n\n该账户的登录凭证、采集记录将被永久删除。`, “删除确认”, {
+    confirmButtonText: “删除”,
+    cancelButtonText: “取消”,
+    type: “warning”,
   });
   let removeProfile = false;
   try {
-    await ElMessageBox.confirm("是否同时删除该账号的本地 Chrome 档案目录？删除后需重新扫码登录。", "清理本地档案", {
-      confirmButtonText: "删除目录",
-      cancelButtonText: "保留目录",
-      type: "warning",
-    });
+    await ElMessageBox.confirm(
+      `是否同时删除该账号的本地 Chrome 档案目录？\n\n删除后 Chrome 中保存的登录状态将被清除，下次需要重新扫码登录。`,
+      “清理本地档案”,
+      { confirmButtonText: “删除目录”, cancelButtonText: “保留目录”, type: “warning” },
+    );
     removeProfile = true;
   } catch {
     // 用户选择保留目录
   }
-  const result = await callSidecar("account_delete", { id: account.id, removeProfile });
+  const result = await callSidecar(“account_delete”, { id: account.id, removeProfile });
   if (result?.ok) {
     selectedAccount.value = null;
     await refreshState();
@@ -799,22 +796,6 @@ function accountCookieStatusType(account) {
 
 function accountLastCaptureAt(account) {
   return account?.lastCaptureSummary?.capturedAt || account?.lastCaptureAt || "--";
-}
-
-function accountResultText(account) {
-  if (account?.lastCaptureSummary?.ok) {
-    return account.lastCaptureSummary.uploaded ? "采集成功" : uploadFailureText(account.lastCaptureSummary.uploadMessage);
-  }
-  const reason = String(account?.lastFailureReason || "").trim();
-  if (reason) return reason;
-  const status = String(account?.loginStatus || "").trim();
-  if (status === "采集暂未接入") return "采集暂未接入";
-  if (status === "需要重新登录") return "需要重新登录";
-  if (status === "采集失败") return "采集失败";
-  const result = String(account?.lastResult || "").trim();
-  if (result === "京东采集暂未接入") return "采集暂未接入";
-  if (result) return "采集成功";
-  return "尚未采集";
 }
 
 function accountResultTagType(account) {
