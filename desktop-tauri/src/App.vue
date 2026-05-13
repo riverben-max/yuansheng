@@ -532,9 +532,11 @@ async function checkUpdate() {
     } catch {
       return;
     }
-    await update.downloadAndInstall((progress) => {
-      // 可选：显示下载进度
+    const loadingMessage = ElMessage({ message: `正在下载 v${version}...`, type: "info", duration: 0 });
+    await update.downloadAndInstall(() => {
+      // 下载完成后应用将自动重启安装
     });
+    loadingMessage.close();
   } catch {
     // 更新检查失败（无端点配置或网络不可用）静默忽略
   }
