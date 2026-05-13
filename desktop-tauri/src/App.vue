@@ -313,6 +313,7 @@ import {
   LOGIN_POLL_TIMEOUT_MS,
   loginPollFailureState,
 } from "./lib/loginPollingPolicy";
+import { captureMessageState } from "./lib/captureMessage";
 
 const activeTab = ref("capture");
 const captureBusy = ref(false);
@@ -746,27 +747,8 @@ async function deleteAccount(account) {
 }
 
 function showCaptureMessage(data = {}) {
-  const results = Array.isArray(data.results) ? data.results : [];
-  if (!results.length) {
-    ElMessage.success("采集完成");
-    return;
-  }
-  const successCount = results.filter((item) => item.ok).length;
-  const skippedCount = results.filter((item) => item.skipped).length;
-  const failureCount = results.length - successCount - skippedCount;
-  if (successCount > 0 && failureCount === 0) {
-    ElMessage.success("采集完成");
-    return;
-  }
-  if (skippedCount === results.length) {
-    ElMessage.info(results[0]?.message || "采集暂未接入");
-    return;
-  }
-  if (successCount > 0) {
-    ElMessage.warning("部分账号采集失败");
-    return;
-  }
-  ElMessage.error("采集失败");
+  const messageState = captureMessageState(data);
+  ElMessage[messageState.type](messageState.message);
 }
 
 function accountCookieStatus(account) {
