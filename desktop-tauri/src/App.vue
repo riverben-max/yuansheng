@@ -291,7 +291,8 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElMessage } from "element-plus/es/components/message/index.mjs";
+import { ElMessageBox } from "element-plus/es/components/message-box/index.mjs";
 import {
   ACCOUNT_PLATFORM_OPTIONS,
   PLATFORM_FILTER_OPTIONS,
