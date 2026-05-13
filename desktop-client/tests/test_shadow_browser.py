@@ -226,6 +226,30 @@ class ShadowBrowserTests(unittest.TestCase):
         self.assertEqual(launch_calls[0][4], shadow_browser.LOGIN_START_URL)
         self.assertTrue(any("登录窗口已打开" in item for item in logs))
 
+    def test_launch_shadow_browser_for_login_uses_configured_startup_url(self) -> None:
+        launch_calls = []
+
+        def fake_launch(chrome_path, profile_dir, port, visible, startup_url):
+            launch_calls.append((chrome_path, profile_dir, port, visible, startup_url))
+            return SimpleNamespace(pid=4567)
+
+        with (
+            patch("shadow_browser.resolve_chrome_path", return_value=r"C:\Chrome\chrome.exe"),
+            patch("shadow_browser._port_is_open", return_value=False),
+            patch("shadow_browser._launch_shadow_browser", side_effect=fake_launch),
+            patch("shadow_browser._wait_for_attach", side_effect=AssertionError("should not attach")),
+        ):
+            shadow_browser.launch_shadow_browser_for_login(
+                {
+                    "shadowChromeProfileDir": r"D:\shadow-profile",
+                    "chromePort": 9333,
+                    "shadowChromeStartupUrl": "https://passport.jd.com/new/login.aspx",
+                },
+                lambda _message: None,
+            )
+
+        self.assertEqual(launch_calls[0][4], "https://passport.jd.com/new/login.aspx")
+
     def test_launch_shadow_browser_for_login_resolves_auto_port_from_devtools_file(self) -> None:
         logs = []
         launch_calls = []

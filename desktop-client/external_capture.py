@@ -4,6 +4,7 @@ import time
 from typing import Any, Callable, Dict, List, Mapping
 from urllib.parse import unquote
 
+from platform_config import is_jd_relevant_page, normalize_platform
 from shadow_browser import ShadowBrowserError, attach_or_recover_shadow_browser, ensure_shadow_browser, show_shadow_browser_window
 from spider_core import EMPLOYEE_TARGET_URL, PageSnapshot, normalize_account_for_match, snapshot_requires_login
 from table_capture import merge_table_round_payloads, parse_json_payload, table_result_to_payload
@@ -97,7 +98,7 @@ def inspect_existing_shadow_browser_state(
         log=log,
         auto_launch=False,
     )
-    page = _ensure_login_relevant_page(session.page, log)
+    page = _ensure_login_relevant_page(session.page, log, platform=normalize_platform(config.get("platform")))
     state = _read_page_state(page)
     cookie_header = _read_cookie_header(page)
     state["shadowChromePid"] = session.pid
@@ -325,11 +326,11 @@ def _open_target_page(page: Any) -> None:
     time.sleep(2)
 
 
-def _ensure_login_relevant_page(page: Any, log: Callable[[str], None]) -> Any:
-    selected = _select_login_relevant_page(page)
+def _ensure_login_relevant_page(page: Any, log: Callable[[str], None], platform: str = "qn") -> Any:
+    selected = _select_login_relevant_page(page, platform)
     if selected is not None:
         page = selected
-    if _should_open_target_page(str(getattr(page, "url", "") or "")):
+    if _should_open_target_page(str(getattr(page, "url", "") or ""), platform):
         page.get(EMPLOYEE_TARGET_URL)
         time.sleep(1)
     _close_noise_tabs(page, log)
@@ -337,30 +338,32 @@ def _ensure_login_relevant_page(page: Any, log: Callable[[str], None]) -> Any:
     return page
 
 
-def _select_login_relevant_page(page: Any) -> Any | None:
-    if _is_login_relevant_url(str(getattr(page, "url", "") or "")):
+def _select_login_relevant_page(page: Any, platform: str = "qn") -> Any | None:
+    if _is_login_relevant_url(str(getattr(page, "url", "") or ""), platform):
         return page
     try:
         tabs = page.get_tabs()
     except Exception:
         return None
     for tab in tabs or []:
-        if _is_login_relevant_url(str(getattr(tab, "url", "") or "")):
+        if _is_login_relevant_url(str(getattr(tab, "url", "") or ""), platform):
             return tab
     return None
 
 
-def _should_open_target_page(url: str) -> bool:
+def _should_open_target_page(url: str, platform: str = "qn") -> bool:
     normalized = str(url or "").strip().lower()
     if not normalized:
         return True
-    if _is_login_relevant_url(normalized):
+    if _is_login_relevant_url(normalized, platform):
         return False
     return normalized.startswith(("about:blank", "chrome://newtab", "chrome://new-tab-page")) or "google." in normalized
 
 
-def _is_login_relevant_url(url: str) -> bool:
+def _is_login_relevant_url(url: str, platform: str = "qn") -> bool:
     normalized = str(url or "").strip().lower()
+    if normalize_platform(platform) == "jd":
+        return is_jd_relevant_page(normalized)
     return any(
         marker in normalized
         for marker in (

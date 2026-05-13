@@ -37,6 +37,15 @@ class ExternalCapturePageSelectionTests(unittest.TestCase):
         self.assertEqual(page.opened_urls, [])
         self.assertTrue(any("loginmyseller.taobao.com" in item for item in logs))
 
+    def test_jd_login_check_keeps_existing_service_page(self) -> None:
+        page = FakePage("https://kf.jd.com/#/43", "京东客服")
+        logs = []
+
+        external_capture._ensure_login_relevant_page(page, logs.append, platform="jd")
+
+        self.assertEqual(page.opened_urls, [])
+        self.assertTrue(any("kf.jd.com" in item for item in logs))
+
     def test_loginmyseller_page_always_requires_login(self) -> None:
         snapshot = PageSnapshot(
             title="千牛工作台 - 商家一站式经营阵地",

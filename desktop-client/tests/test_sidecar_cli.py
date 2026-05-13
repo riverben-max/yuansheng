@@ -108,18 +108,38 @@ class SidecarAccountTests(unittest.TestCase):
             sidecar_cli.is_autostart_enabled = lambda: False
 
             try:
-                created = app.account_create({"displayName": "张三", "loginHint": "zhangsan"})
+                created = app.account_create(
+                    {
+                        "displayName": "张三",
+                        "loginHint": "zhangsan",
+                        "platform": "jd",
+                        "shopName": "医谷特膳膳养道专卖店",
+                    }
+                )
                 account_id = created["data"]["id"]
-                updated = app.account_update({"id": account_id, "displayName": "张三客服", "enabled": False, "chromePort": 9333})
+                updated = app.account_update(
+                    {
+                        "id": account_id,
+                        "displayName": "张三客服",
+                        "enabled": False,
+                        "chromePort": 9333,
+                        "platform": "bad",
+                        "shopName": "远盛电商",
+                    }
+                )
                 deleted = app.account_delete({"id": account_id})
                 state = app.load_state()
             finally:
                 sidecar_cli.is_autostart_enabled = original_is_autostart_enabled
 
         self.assertTrue(created["ok"])
+        self.assertEqual(created["data"]["platform"], "jd")
+        self.assertEqual(created["data"]["shopName"], "医谷特膳膳养道专卖店")
         self.assertEqual(updated["data"]["displayName"], "张三客服")
         self.assertFalse(updated["data"]["enabled"])
         self.assertEqual(updated["data"]["chromePort"], 9333)
+        self.assertEqual(updated["data"]["platform"], "qn")
+        self.assertEqual(updated["data"]["shopName"], "远盛电商")
         self.assertEqual(deleted["data"]["id"], account_id)
         self.assertNotIn(account_id, [item["id"] for item in state["loginAccounts"]])
 
@@ -252,6 +272,65 @@ class SidecarAccountTests(unittest.TestCase):
         self.assertEqual(opened_configs[0]["chromePort"], 0)
         self.assertEqual(result["data"]["browser"]["activeChromePort"], 45678)
         self.assertEqual(reloaded["loginAccounts"][0]["activeChromePort"], 45678)
+
+    def test_start_login_uses_platform_login_start_url(self) -> None:
+        opened_configs = []
+
+        def fake_launch(config, _log):
+            opened_configs.append(dict(config))
+            return SimpleNamespace(
+                page=None,
+                chrome_path=r"C:\Chrome\chrome.exe",
+                profile_dir=str(config["shadowChromeProfileDir"]),
+                port=45678,
+                pid=1234,
+                launched=True,
+                restarted=False,
+            )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            app = SidecarApp(data_dir=data_dir, emit=lambda _event: None)
+            state = app.load_state()
+            state["loginAccounts"] = [
+                {
+                    "id": "qn-account",
+                    "platform": "qn",
+                    "displayName": "千牛账号",
+                    "profileDir": str(data_dir / "profiles" / "qn"),
+                    "chromePort": 9222,
+                    "enabled": True,
+                },
+                {
+                    "id": "jd-account",
+                    "platform": "jd",
+                    "displayName": "京东账号",
+                    "profileDir": str(data_dir / "profiles" / "jd"),
+                    "chromePort": 9223,
+                    "enabled": True,
+                },
+            ]
+            app.save_state(state)
+
+            original_shutdown = sidecar_cli.shutdown_shadow_browser
+            original_launch = sidecar_cli.launch_shadow_browser_for_login
+            sidecar_cli.shutdown_shadow_browser = lambda _config, _log: 0
+            sidecar_cli.launch_shadow_browser_for_login = fake_launch
+            try:
+                qn_result = app.start_login({"accountId": "qn-account"})
+                reloaded = app.load_state()
+                reloaded["loginAccounts"][0]["loginStatus"] = "登录窗口已关闭"
+                reloaded["loginAccounts"][0]["shadowChromePid"] = 0
+                app.save_state(reloaded)
+                jd_result = app.start_login({"accountId": "jd-account"})
+            finally:
+                sidecar_cli.shutdown_shadow_browser = original_shutdown
+                sidecar_cli.launch_shadow_browser_for_login = original_launch
+
+        self.assertTrue(qn_result["ok"])
+        self.assertTrue(jd_result["ok"])
+        self.assertEqual(opened_configs[0]["shadowChromeStartupUrl"], sidecar_cli.QN_LOGIN_URL)
+        self.assertEqual(opened_configs[1]["shadowChromeStartupUrl"], sidecar_cli.JD_LOGIN_URL)
 
     def test_concurrent_start_login_reuses_single_login_session(self) -> None:
         opened_configs = []
@@ -698,6 +777,190 @@ class SidecarAccountTests(unittest.TestCase):
         self.assertNotIn("cookieProtected", reloaded["loginAccounts"][0])
         self.assertEqual(shutdown_calls, [])
 
+    def test_poll_login_for_jd_waits_on_passport_page_without_saving_cookie(self) -> None:
+        shutdown_calls = []
+        cookie = "thor=jd-token; pin=jd-user"
+
+        def fake_inspect(_config, _log):
+            return {
+                "cookieHeader": cookie,
+                "loggedIn": False,
+                "pageUrl": "https://passport.jd.com/new/login.aspx?ReturnUrl=http%3A%2F%2Fkf.jd.com%2F",
+                "pageTitle": "京东登录",
+                "shadowChromePid": 2345,
+                "activeChromePort": 45678,
+            }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = SidecarApp(data_dir=Path(temp_dir), emit=lambda _event: None)
+            state = app.load_state()
+            state["loginAccounts"][0]["platform"] = "jd"
+            state["loginAccounts"][0]["loginStatus"] = "等待登录"
+            state["loginAccounts"][0]["activeChromePort"] = 45678
+            app.save_state(state)
+
+            original_inspect = sidecar_cli.inspect_existing_shadow_browser_state
+            original_shutdown = sidecar_cli.shutdown_shadow_browser
+            sidecar_cli.inspect_existing_shadow_browser_state = fake_inspect
+            sidecar_cli.shutdown_shadow_browser = lambda config, _log: shutdown_calls.append(config) or 1
+            try:
+                result = app.poll_login({"accountId": "default"})
+                reloaded = app.load_state()
+            finally:
+                sidecar_cli.inspect_existing_shadow_browser_state = original_inspect
+                sidecar_cli.shutdown_shadow_browser = original_shutdown
+
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["data"]["loggedIn"])
+        self.assertEqual(result["data"]["status"], "等待扫码")
+        self.assertNotIn("cookieProtected", reloaded["loginAccounts"][0])
+        self.assertEqual(reloaded["loginAccounts"][0]["shadowChromePid"], 2345)
+        self.assertEqual(shutdown_calls, [])
+
+    def test_poll_login_for_jd_logs_cookie_names_without_cookie_values(self) -> None:
+        events = []
+        cookie = "thor=secret-thor; pin=secret-pin; pt_pin=secret-pt-pin; __jda=secret-jda"
+
+        def fake_inspect(_config, _log):
+            return {
+                "cookieHeader": cookie,
+                "loggedIn": False,
+                "pageUrl": "https://passport.jd.com/new/login.aspx?ReturnUrl=http%3A%2F%2Fkf.jd.com%2F",
+                "pageTitle": "京东登录",
+                "shadowChromePid": 2345,
+                "activeChromePort": 45678,
+            }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = SidecarApp(data_dir=Path(temp_dir), emit=events.append)
+            state = app.load_state()
+            state["loginAccounts"][0]["platform"] = "jd"
+            state["loginAccounts"][0]["loginStatus"] = "等待登录"
+            state["loginAccounts"][0]["activeChromePort"] = 45678
+            app.save_state(state)
+
+            original_inspect = sidecar_cli.inspect_existing_shadow_browser_state
+            sidecar_cli.inspect_existing_shadow_browser_state = fake_inspect
+            try:
+                app.poll_login({"accountId": "default"})
+            finally:
+                sidecar_cli.inspect_existing_shadow_browser_state = original_inspect
+
+        diagnostic_logs = [
+            str(item.get("message") or "")
+            for item in events
+            if item.get("type") == "log" and "京东登录诊断" in str(item.get("message") or "")
+        ]
+        self.assertEqual(len(diagnostic_logs), 1)
+        diagnostic = diagnostic_logs[0]
+        self.assertIn("url=https://passport.jd.com/new/login.aspx?ReturnUrl=http%3A%2F%2Fkf.jd.com%2F", diagnostic)
+        self.assertIn("cookieCount=4", diagnostic)
+        self.assertIn("cookieNames=__jda,pin,pt_pin,thor", diagnostic)
+        self.assertIn("hasPin=是", diagnostic)
+        self.assertIn("hasPtPin=是", diagnostic)
+        self.assertIn("hasThor=是", diagnostic)
+        self.assertNotIn("secret", diagnostic)
+        self.assertNotIn("secret-thor", diagnostic)
+
+    def test_poll_login_for_jd_waits_on_service_page_without_pin_and_thor(self) -> None:
+        shutdown_calls = []
+        cookie = "__jda=visitor; __jdb=session; guid=visitor-guid"
+
+        def fake_inspect(_config, _log):
+            return {
+                "cookieHeader": cookie,
+                "loggedIn": False,
+                "pageUrl": "https://kf.jd.com/#/218",
+                "pageTitle": "京东客服管家",
+                "shadowChromePid": 2345,
+                "activeChromePort": 45678,
+            }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = SidecarApp(data_dir=Path(temp_dir), emit=lambda _event: None)
+            state = app.load_state()
+            state["loginAccounts"][0]["platform"] = "jd"
+            state["loginAccounts"][0]["loginStatus"] = "等待登录"
+            state["loginAccounts"][0]["activeChromePort"] = 45678
+            app.save_state(state)
+
+            original_inspect = sidecar_cli.inspect_existing_shadow_browser_state
+            original_shutdown = sidecar_cli.shutdown_shadow_browser
+            sidecar_cli.inspect_existing_shadow_browser_state = fake_inspect
+            sidecar_cli.shutdown_shadow_browser = lambda config, _log: shutdown_calls.append(config) or 1
+            try:
+                result = app.poll_login({"accountId": "default"})
+                reloaded = app.load_state()
+            finally:
+                sidecar_cli.inspect_existing_shadow_browser_state = original_inspect
+                sidecar_cli.shutdown_shadow_browser = original_shutdown
+
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["data"]["loggedIn"])
+        self.assertEqual(result["data"]["status"], "等待扫码")
+        self.assertNotIn("cookieProtected", reloaded["loginAccounts"][0])
+        self.assertEqual(reloaded["loginAccounts"][0]["shadowChromePid"], 2345)
+        self.assertEqual(shutdown_calls, [])
+
+    def test_poll_login_for_jd_saves_cookie_on_service_page_and_hides_protected_cookie(self) -> None:
+        shutdown_calls = []
+        protected_cookie = "dpapi:v1:jd-cookie"
+        cookie = "thor=jd-token; pin=jd-user"
+
+        def fake_inspect(_config, _log):
+            return {
+                "cookieHeader": cookie,
+                "loggedIn": False,
+                "pageUrl": "https://kf.jd.com/#/43",
+                "pageTitle": "京东客服",
+                "shadowChromePid": 2345,
+                "activeChromePort": 45678,
+            }
+
+        def fake_shutdown(config, _log):
+            shutdown_calls.append(
+                (
+                    str(config.get("shadowChromeProfileDir") or ""),
+                    int(config.get("activeChromePort") or config.get("chromePort") or 0),
+                )
+            )
+            return 1
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            app = SidecarApp(data_dir=data_dir, emit=lambda _event: None)
+            state = app.load_state()
+            state["loginAccounts"][0]["platform"] = "jd"
+            state["loginAccounts"][0]["profileDir"] = str(data_dir / "profiles" / "jd")
+            state["loginAccounts"][0]["chromePort"] = 0
+            state["loginAccounts"][0]["activeChromePort"] = 45678
+            app.save_state(state)
+
+            original_inspect = sidecar_cli.inspect_existing_shadow_browser_state
+            original_protect = sidecar_cli.protect_text
+            original_shutdown = sidecar_cli.shutdown_shadow_browser
+            sidecar_cli.inspect_existing_shadow_browser_state = fake_inspect
+            sidecar_cli.protect_text = lambda value: protected_cookie if value == cookie else value
+            sidecar_cli.shutdown_shadow_browser = fake_shutdown
+            try:
+                result = app.poll_login({"accountId": "default"})
+                reloaded = app.load_state()
+            finally:
+                sidecar_cli.inspect_existing_shadow_browser_state = original_inspect
+                sidecar_cli.protect_text = original_protect
+                sidecar_cli.shutdown_shadow_browser = original_shutdown
+
+        account = reloaded["loginAccounts"][0]
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["data"]["loggedIn"])
+        self.assertEqual(account["cookieProtected"], protected_cookie)
+        self.assertEqual(account["loginStatus"], "已登录")
+        self.assertEqual(account["lastKnownLoginAccount"], "jd-user")
+        self.assertEqual(shutdown_calls, [(str(data_dir / "profiles" / "jd"), 45678)])
+        self.assertNotIn("activeChromePort", account)
+        public_account = result["data"]["state"]["loginAccounts"][0]
+        self.assertNotIn("cookieProtected", public_account)
+
     def test_poll_login_saves_protected_cookie_closes_browser_and_keeps_profile_dir(self) -> None:
         shutdown_calls = []
         protected_cookie = "dpapi:v1:encrypted-cookie"
@@ -1025,6 +1288,110 @@ class SidecarCaptureTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertFalse(result["data"]["results"][0]["ok"])
         self.assertEqual(result["data"]["results"][0]["message"], "采集失败")
+
+    def test_capture_account_for_jd_uses_jd_adapter(self) -> None:
+        def bad_direct_capture(_state, _log):
+            raise AssertionError("京东账号不应调用千牛采集")
+
+        def fake_jd_capture(_state, _log):
+            return {
+                "loginAccount": "京东账号",
+                "recordDate": "2026-05-12",
+                "subAccount": "if自营菠萝",
+                "consultationCount": 58,
+            }
+
+        def fake_upload(_state, _payload, _signature, _reason):
+            return "服务端上传成功：上传成功。", {"uploadedAt": "2026-05-12 09:00:00"}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = SidecarApp(
+                data_dir=Path(temp_dir),
+                emit=lambda _event: None,
+                direct_capture_func=bad_direct_capture,
+                jd_capture_func=fake_jd_capture,
+                upload_func=fake_upload,
+            )
+            state = app.load_state()
+            state["loginAccounts"][0]["platform"] = "jd"
+            state["loginAccounts"][0]["displayName"] = "京东账号"
+            state["loginAccounts"][0]["cookieProtected"] = "dpapi:v1:encrypted-cookie"
+            app.save_state(state)
+
+            result = app.capture_account({"accountId": "default"})
+            reloaded = app.load_state()
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["data"]["batch"])
+        self.assertTrue(result["data"]["results"][0]["ok"])
+        self.assertEqual(result["data"]["results"][0]["payload"]["subAccount"], "if自营菠萝")
+        self.assertEqual(reloaded["loginAccounts"][0]["loginStatus"], "采集成功")
+
+    def test_capture_all_mixed_accounts_returns_qn_and_jd_results(self) -> None:
+        captured_platforms = []
+
+        def fake_direct_capture(state, _log):
+            captured_platforms.append(state["platform"])
+            return {
+                "loginAccount": "远盛电商",
+                "recordDate": "2026-05-09",
+                "subAccount": "千牛账号",
+                "consultationCount": 3,
+            }
+
+        def fake_jd_capture(state, _log):
+            captured_platforms.append(state["platform"])
+            return {
+                "loginAccount": "京东账号",
+                "recordDate": "2026-05-12",
+                "subAccount": "if自营菠萝",
+                "consultationCount": 58,
+            }
+
+        def fake_upload(_state, _payload, _signature, _reason):
+            return "服务端上传成功：上传成功。", {"uploadedAt": "2026-05-09 09:00:00"}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            app = SidecarApp(
+                data_dir=data_dir,
+                emit=lambda _event: None,
+                direct_capture_func=fake_direct_capture,
+                jd_capture_func=fake_jd_capture,
+                upload_func=fake_upload,
+            )
+            state = app.load_state()
+            state["loginAccounts"] = [
+                {
+                    "id": "qn-account",
+                    "platform": "qn",
+                    "displayName": "千牛账号",
+                    "enabled": True,
+                    "profileDir": str(data_dir / "profiles" / "qn"),
+                    "cookieProtected": "dpapi:v1:qn-cookie",
+                },
+                {
+                    "id": "jd-account",
+                    "platform": "jd",
+                    "displayName": "京东账号",
+                    "enabled": True,
+                    "profileDir": str(data_dir / "profiles" / "jd"),
+                    "cookieProtected": "dpapi:v1:jd-cookie",
+                },
+            ]
+            app.save_state(state)
+
+            result = app.capture_all({"reason": "手动采集"})
+            reloaded = app.load_state()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(captured_platforms, ["qn", "jd"])
+        self.assertEqual(len(result["data"]["results"]), 2)
+        self.assertTrue(result["data"]["results"][0]["ok"])
+        self.assertTrue(result["data"]["results"][1]["ok"])
+        self.assertTrue(reloaded["lastRunAt"])
+        jd_account = next(item for item in reloaded["loginAccounts"] if item["id"] == "jd-account")
+        self.assertEqual(jd_account["lastFailureReason"], "")
 
 
 if __name__ == "__main__":

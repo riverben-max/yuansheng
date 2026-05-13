@@ -17,6 +17,56 @@
 
     <el-tabs v-model="activeTab" class="workspace-tabs">
       <el-tab-pane label="数据采集" name="capture">
+        <section class="platform-overview-grid">
+          <article v-for="card in platformCards" :key="card.platform" class="platform-card">
+            <div class="platform-card-head">
+              <div>
+                <span class="section-label">平台采集</span>
+                <h2>{{ card.label }}</h2>
+              </div>
+              <el-tag :type="card.platform === 'qn' ? 'success' : 'info'" effect="light">{{ card.summaryText }}</el-tag>
+            </div>
+
+            <div class="platform-stats">
+              <div>
+                <span>账号总数</span>
+                <strong>{{ card.accountCount }}</strong>
+              </div>
+              <div>
+                <span>启用账号</span>
+                <strong>{{ card.enabledCount }}</strong>
+              </div>
+              <div>
+                <span>已登录</span>
+                <strong>{{ card.loggedInCount }}</strong>
+              </div>
+            </div>
+
+            <div class="platform-latest">
+              <div>
+                <span>最近采集</span>
+                <strong>{{ card.latestCaptureAt || "--" }}</strong>
+              </div>
+              <div>
+                <span>最近结果</span>
+                <strong>{{ card.latestResultText || "尚未采集" }}</strong>
+              </div>
+            </div>
+
+            <div class="platform-action">
+              <el-button
+                :type="card.platform === 'qn' ? 'success' : 'info'"
+                :loading="captureBusy"
+                :disabled="captureBusy || card.action.disabled"
+                @click="captureAll(card.platform)"
+              >
+                {{ card.action.buttonText }}
+              </el-button>
+              <span v-if="card.action.hint">{{ card.action.hint }}</span>
+            </div>
+          </article>
+        </section>
+
         <section class="capture-grid">
           <div class="panel control-panel">
             <div class="panel-head">
@@ -28,7 +78,7 @@
 
             <div class="metrics">
               <div class="metric">
-                <span>登录账户</span>
+                <span>全平台登录</span>
                 <strong>{{ loginAccountMetricText }}</strong>
               </div>
               <div class="metric">
@@ -77,16 +127,6 @@
             </div>
 
             <div class="actions">
-              <el-button
-                :loading="captureBusy"
-                :disabled="captureBusy || !allEnabledAccountsLoggedIn"
-                type="success"
-                size="large"
-                @click="captureAll"
-              >
-                采集全部启用账号
-              </el-button>
-              <span v-if="!allEnabledAccountsLoggedIn" class="action-hint">请先登录全部启用账号</span>
               <el-button size="large" @click="refreshState">刷新状态</el-button>
             </div>
           </div>
@@ -145,7 +185,7 @@
           <div class="panel-head">
             <div>
               <h2>登录账户管理</h2>
-              <p>{{ accounts.length }} 个账户</p>
+              <p>{{ accountSummaryText }}</p>
             </div>
             <div class="toolbar">
               <el-button @click="openAccountDialog()">新增登录账户</el-button>
@@ -156,20 +196,38 @@
             </div>
           </div>
 
+          <div class="account-filter-row">
+            <span>平台筛选</span>
+            <el-radio-group v-model="activePlatformFilter" size="small">
+              <el-radio-button v-for="item in platformFilterOptions" :key="item.value" :label="item.value">
+                {{ item.label }}
+              </el-radio-button>
+            </el-radio-group>
+          </div>
+
           <el-table
-            :data="accounts"
+            ref="accountTableRef"
+            :data="filteredAccounts"
             height="620"
             highlight-current-row
             class="account-table"
             @current-change="selectedAccount = $event"
           >
+            <el-table-column label="平台" width="92">
+              <template #default="{ row }">
+                <el-tag effect="light">{{ platformLabel(row.platform) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="shopName" label="店铺名称" width="180" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.shopName || "--" }}</template>
+            </el-table-column>
+            <el-table-column prop="displayName" label="账户备注" width="140" show-overflow-tooltip />
+            <el-table-column prop="loginHint" label="登录识别名" width="160" show-overflow-tooltip />
             <el-table-column prop="enabled" label="启用" width="72">
               <template #default="{ row }">
                 <el-tag :type="row.enabled ? 'success' : 'info'" effect="light">{{ row.enabled ? "是" : "否" }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="displayName" label="账户备注" width="140" show-overflow-tooltip />
-            <el-table-column prop="loginHint" label="登录识别名" width="160" show-overflow-tooltip />
             <el-table-column label="Cookie状态" width="116">
               <template #default="{ row }">
                 <el-tag :type="accountCookieStatusType(row)" effect="light">{{ accountCookieStatus(row) }}</el-tag>
@@ -207,6 +265,14 @@
 
     <el-dialog v-model="accountDialog.visible" :title="accountDialog.id ? '编辑登录账户' : '新增登录账户'" width="520">
       <el-form label-position="top">
+        <el-form-item label="平台">
+          <el-select v-model="accountDialog.platform" class="full-input">
+            <el-option v-for="item in accountPlatformOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="店铺名称">
+          <el-input v-model="accountDialog.shopName" />
+        </el-form-item>
         <el-form-item label="账户备注">
           <el-input v-model="accountDialog.displayName" />
         </el-form-item>
@@ -224,8 +290,20 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import {
+  ACCOUNT_PLATFORM_OPTIONS,
+  PLATFORM_FILTER_OPTIONS,
+  defaultPlatformForNewAccount,
+  enabledFilteredAccountCount as countEnabledFilteredAccounts,
+  filterAccountsByPlatform,
+  normalizePlatform,
+  platformLabel,
+  selectedAccountVisible,
+  summarizeAccounts,
+} from "./accountMatrix";
+import { buildPlatformSummaries, platformActionState, platformSummaryText, uploadFailureText } from "./platformOverview";
 import { runSidecar, subscribeSidecarEvents } from "./sidecar";
 import {
   LOGIN_POLL_FIRST_DELAY_MS,
@@ -242,6 +320,8 @@ const saving = ref(false);
 const runtimeStatus = ref("待命");
 const statusDanger = ref(false);
 const selectedAccount = ref(null);
+const accountTableRef = ref(null);
+const activePlatformFilter = ref("all");
 const activeLoginAccountId = ref("");
 const logs = ref([]);
 const state = reactive({
@@ -266,10 +346,14 @@ const settings = reactive({
 const accountDialog = reactive({
   visible: false,
   id: "",
+  platform: "qn",
+  shopName: "",
   displayName: "",
   loginHint: "",
   enabled: true,
 });
+const accountPlatformOptions = ACCOUNT_PLATFORM_OPTIONS;
+const platformFilterOptions = PLATFORM_FILTER_OPTIONS;
 const metricDefinitions = [
   { key: "consultationCount", label: "咨询人数" },
   { key: "receiveCount", label: "接待人数" },
@@ -284,10 +368,20 @@ const metricDefinitions = [
 
 const enabledAccounts = computed(() => accounts.value.filter((account) => account.enabled));
 const loggedInEnabledAccounts = computed(() => enabledAccounts.value.filter(isAccountCaptureReady));
+const filteredAccounts = computed(() => filterAccountsByPlatform(accounts.value, activePlatformFilter.value));
+const accountSummaryText = computed(() => summarizeAccounts(accounts.value, activePlatformFilter.value));
+const enabledFilteredAccountCount = computed(() => countEnabledFilteredAccounts(accounts.value, activePlatformFilter.value));
+const platformCards = computed(() =>
+  buildPlatformSummaries(accounts.value).map((summary) => ({
+    ...summary,
+    summaryText: platformSummaryText(summary),
+    action: platformActionState(summary),
+  })),
+);
 const allEnabledAccountsLoggedIn = computed(
   () => enabledAccounts.value.length > 0 && loggedInEnabledAccounts.value.length === enabledAccounts.value.length,
 );
-const loginAccountMetricText = computed(() => `${loggedInEnabledAccounts.value.length}/${enabledAccounts.value.length}`);
+const loginAccountMetricText = computed(() => `已登录 ${loggedInEnabledAccounts.value.length} / 启用 ${enabledAccounts.value.length}`);
 const loginSummaryStatus = computed(() => {
   if (!enabledAccounts.value.length) return "无启用账号";
   if (allEnabledAccountsLoggedIn.value) return "已全部登录";
@@ -312,7 +406,9 @@ const latestOverviewSubtitle = computed(() => {
   return "尚未采集";
 });
 const overviewStatusText = computed(() => {
-  if (latestCaptureSummary.value) return latestCaptureSummary.value.uploaded ? "采集成功" : "上传失败";
+  if (latestCaptureSummary.value) {
+    return latestCaptureSummary.value.uploaded ? "采集成功" : uploadFailureText(latestCaptureSummary.value.uploadMessage);
+  }
   if (latestOverviewAccount.value) return accountResultText(latestOverviewAccount.value);
   return "尚未采集";
 });
@@ -343,6 +439,7 @@ const overviewFailureText = computed(() => {
 const overviewNextAction = computed(() => {
   if (!overviewFailureText.value) return "";
   if (overviewStatusText.value === "需要重新登录") return "下一步：回到用户管理重新登录该账号";
+  if (overviewStatusText.value === "平台未配置客服账号") return "下一步：在系统用户中创建对应客服账号";
   if (overviewStatusText.value === "上传失败") return "下一步：检查服务端地址或稍后重试";
   return "下一步：查看详情后重试采集";
 });
@@ -386,6 +483,13 @@ onMounted(async () => {
 onUnmounted(() => {
   if (unlistenSidecar) unlistenSidecar();
   stopLoginPolling();
+});
+
+watch([activePlatformFilter, filteredAccounts], () => {
+  if (selectedAccount.value && !selectedAccountVisible(selectedAccount.value, activePlatformFilter.value)) {
+    selectedAccount.value = null;
+    accountTableRef.value?.setCurrentRow?.(null);
+  }
 });
 
 function applyState(nextState = {}) {
@@ -535,10 +639,11 @@ function withTimeout(promise, timeoutMs, timeoutResult) {
   });
 }
 
-async function captureAll() {
-  if (!allEnabledAccountsLoggedIn.value) {
+async function captureAll(platform = "") {
+  const action = platformCards.value.find((card) => card.platform === normalizePlatform(platform))?.action;
+  if (action?.disabled) {
     activeTab.value = "accounts";
-    ElMessage.warning("请先登录全部启用账号");
+    ElMessage.warning(action.hint || "请先登录全部启用账号");
     return;
   }
   await runCapture("capture_all", {});
@@ -568,9 +673,12 @@ async function runCapture(command, payload) {
 }
 
 function openAccountDialog(account = null) {
+  const isEditing = Boolean(account?.id);
   Object.assign(accountDialog, {
     visible: true,
     id: account?.id || "",
+    platform: isEditing ? normalizePlatform(account?.platform) : defaultPlatformForNewAccount(activePlatformFilter.value),
+    shopName: account?.shopName || "",
     displayName: account?.displayName || "",
     loginHint: account?.loginHint || "",
     enabled: account?.enabled !== false,
@@ -594,6 +702,8 @@ async function saveAccount() {
   const command = accountDialog.id ? "account_update" : "account_create";
   const payload = {
     id: accountDialog.id,
+    platform: accountDialog.platform,
+    shopName: accountDialog.shopName,
     displayName: accountDialog.displayName,
     loginHint: accountDialog.loginHint,
     enabled: accountDialog.enabled,
@@ -641,8 +751,14 @@ function showCaptureMessage(data = {}) {
     return;
   }
   const successCount = results.filter((item) => item.ok).length;
-  if (successCount === results.length) {
+  const skippedCount = results.filter((item) => item.skipped).length;
+  const failureCount = results.length - successCount - skippedCount;
+  if (successCount > 0 && failureCount === 0) {
     ElMessage.success("采集完成");
+    return;
+  }
+  if (skippedCount === results.length) {
+    ElMessage.info(results[0]?.message || "采集暂未接入");
     return;
   }
   if (successCount > 0) {
@@ -674,22 +790,25 @@ function accountLastCaptureAt(account) {
 
 function accountResultText(account) {
   if (account?.lastCaptureSummary?.ok) {
-    return account.lastCaptureSummary.uploaded ? "采集成功" : "上传失败";
+    return account.lastCaptureSummary.uploaded ? "采集成功" : uploadFailureText(account.lastCaptureSummary.uploadMessage);
   }
   const reason = String(account?.lastFailureReason || "").trim();
   if (reason) return reason;
   const status = String(account?.loginStatus || "").trim();
+  if (status === "采集暂未接入") return "采集暂未接入";
   if (status === "需要重新登录") return "需要重新登录";
   if (status === "采集失败") return "采集失败";
-  if (account?.lastResult) return "采集成功";
+  const result = String(account?.lastResult || "").trim();
+  if (result === "京东采集暂未接入") return "采集暂未接入";
+  if (result) return "采集成功";
   return "尚未采集";
 }
 
 function accountResultTagType(account) {
   const text = accountResultText(account);
   if (text === "采集成功") return "success";
-  if (text === "上传失败") return "warning";
-  if (text === "尚未采集") return "info";
+  if (text === "上传失败" || text === "平台未配置客服账号") return "warning";
+  if (text === "尚未采集" || text === "采集暂未接入") return "info";
   return "danger";
 }
 

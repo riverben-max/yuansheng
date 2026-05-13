@@ -10,6 +10,7 @@ from login_accounts import (
     ensure_login_accounts,
 )
 from direct_api_capture import DirectApiCaptureError, DirectApiLoginRequiredError
+from jd_workload_capture import JdWorkloadIdentityRequiredError
 
 
 class LoginAccountConfigTests(unittest.TestCase):
@@ -29,7 +30,29 @@ class LoginAccountConfigTests(unittest.TestCase):
         self.assertTrue(accounts[0]["enabled"])
         self.assertEqual(accounts[0]["chromePort"], 0)
         self.assertTrue(accounts[0]["profileDir"].endswith("legacy-profile"))
+        self.assertEqual(accounts[0]["platform"], "qn")
+        self.assertEqual(accounts[0]["shopName"], "")
         self.assertIs(state["loginAccounts"], accounts)
+
+    def test_existing_login_account_without_platform_defaults_to_qn(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            state = {
+                "loginAccounts": [
+                    {
+                        "id": "account-1",
+                        "displayName": "张三",
+                        "loginHint": "zhangsan",
+                        "enabled": True,
+                        "profileDir": str(data_dir / "profiles" / "zhangsan"),
+                    }
+                ]
+            }
+
+            accounts = ensure_login_accounts(state, data_dir)
+
+        self.assertEqual(accounts[0]["platform"], "qn")
+        self.assertEqual(accounts[0]["shopName"], "")
 
     def test_add_login_account_allocates_profile_and_uses_auto_port(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -54,7 +77,47 @@ class LoginAccountConfigTests(unittest.TestCase):
         self.assertTrue(account["enabled"])
         self.assertEqual(account["chromePort"], 0)
         self.assertTrue(account["profileDir"].replace("\\", "/").endswith("/profiles/lisi"))
+        self.assertEqual(account["platform"], "qn")
+        self.assertEqual(account["shopName"], "")
         self.assertIn(account, state["loginAccounts"])
+
+    def test_add_login_account_accepts_jd_platform_and_shop_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            state = {}
+
+            account = add_login_account(
+                state,
+                data_dir,
+                display_name="京东账号",
+                login_hint="jd-user",
+                platform="jd",
+                shop_name="医谷特膳膳养道专卖店",
+            )
+
+        self.assertEqual(account["platform"], "jd")
+        self.assertEqual(account["shopName"], "医谷特膳膳养道专卖店")
+
+    def test_invalid_platform_normalizes_to_qn(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            state = {
+                "loginAccounts": [
+                    {
+                        "id": "bad-platform",
+                        "displayName": "旧账号",
+                        "platform": "unknown",
+                        "shopName": "远盛电商",
+                    }
+                ]
+            }
+
+            accounts = ensure_login_accounts(state, data_dir)
+            account = add_login_account(state, data_dir, display_name="新账号", platform="bad")
+
+        self.assertEqual(accounts[0]["platform"], "qn")
+        self.assertEqual(accounts[0]["shopName"], "远盛电商")
+        self.assertEqual(account["platform"], "qn")
 
 
 class BatchCaptureTests(unittest.TestCase):
@@ -144,6 +207,43 @@ class BatchCaptureTests(unittest.TestCase):
         self.assertEqual(summary["uploadMessage"], "服务端上传失败：连接超时")
         self.assertEqual(accounts[0]["lastFailureReason"], "上传失败")
         self.assertEqual(results[0]["lastFailureReason"], "上传失败")
+
+    def test_missing_employee_mapping_upload_failure_is_classified_for_platform_account(self) -> None:
+        state = {"serverUrl": "http://example.com", "uploadHistory": {}}
+        accounts = [
+            {
+                "id": "jd-no-employee",
+                "platform": "jd",
+                "displayName": "京东账号",
+                "enabled": True,
+                "cookieProtected": "dpapi:v1:cookie",
+            }
+        ]
+
+        def fake_capture(_config, _log):
+            return {
+                "loginAccount": "京东菠萝店",
+                "recordDate": "2026-05-12",
+                "subAccount": "未分配",
+                "consultationCount": 58,
+            }
+
+        upload_message = "服务端上传失败：未找到员工账号映射：subAccount=未分配，请先在系统用户中创建对应客服账号"
+        results = capture_enabled_accounts(
+            state,
+            accounts,
+            reason="手动采集",
+            capture_func=lambda _config, _log: {},
+            upload_func=lambda _state, _payload, _signature, _reason: (upload_message, None),
+            log=lambda _message: None,
+            jd_capture_func=fake_capture,
+        )
+
+        self.assertTrue(results[0]["ok"])
+        self.assertFalse(accounts[0]["lastCaptureSummary"]["uploaded"])
+        self.assertEqual(accounts[0]["lastCaptureSummary"]["uploadMessage"], upload_message)
+        self.assertEqual(accounts[0]["lastFailureReason"], "平台未配置客服账号")
+        self.assertEqual(results[0]["lastFailureReason"], "平台未配置客服账号")
 
     def test_failed_capture_records_failure_reason_and_clears_stale_summary(self) -> None:
         state = {"serverUrl": "http://example.com", "uploadHistory": {}}
@@ -275,6 +375,205 @@ class BatchCaptureTests(unittest.TestCase):
         self.assertFalse(results[0]["ok"])
         self.assertEqual(results[0]["errorType"], "generic")
         self.assertEqual(accounts[0]["loginStatus"], "采集失败")
+
+    def test_jd_account_uses_jd_capture_adapter_and_uploads(self) -> None:
+        state = {"serverUrl": "http://example.com", "uploadHistory": {}}
+        accounts = [
+            {
+                "id": "jd-account",
+                "platform": "jd",
+                "displayName": "京东账号",
+                "enabled": True,
+                "cookieProtected": "dpapi:v1:jd-cookie",
+                "lastKnownLoginAccount": "if自营菠萝",
+                "lastCaptureSummary": {"ok": True, "subAccount": "旧数据"},
+            }
+        ]
+        uploaded_sub_accounts = []
+
+        def fail_capture(_config, _log):
+            raise AssertionError("jd account should not call qn capture")
+
+        def fake_jd_capture(config, _log):
+            self.assertEqual(config["platform"], "jd")
+            self.assertEqual(config["lastKnownLoginAccount"], "if自营菠萝")
+            return {
+                "loginAccount": "京东店铺名",
+                "recordDate": "2026-05-12",
+                "subAccount": "if自营菠萝",
+                "consultationCount": 58,
+                "rawMetrics": {
+                    "source": "jd_workload",
+                    "requestParams": {"servicePin": "if自营菠萝"},
+                },
+            }
+
+        def fake_upload(_state, payload, _signature, _reason):
+            uploaded_sub_accounts.append(payload["subAccount"])
+            return "服务端上传成功：上传成功。", {"uploadedAt": "2026-05-12 09:00:00"}
+
+        results = capture_enabled_accounts(
+            state,
+            accounts,
+            reason="手动采集",
+            capture_func=fail_capture,
+            upload_func=fake_upload,
+            log=lambda _message: None,
+            jd_capture_func=fake_jd_capture,
+        )
+
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0]["ok"])
+        self.assertEqual(uploaded_sub_accounts, ["if自营菠萝"])
+        self.assertEqual(accounts[0]["loginStatus"], "采集成功")
+        self.assertEqual(accounts[0]["lastFailureReason"], "")
+        self.assertEqual(accounts[0]["lastKnownLoginAccount"], "if自营菠萝")
+        self.assertEqual(accounts[0]["lastCaptureSummary"]["subAccount"], "if自营菠萝")
+
+    def test_jd_capture_keeps_existing_service_pin_when_payload_has_shop_name(self) -> None:
+        state = {"serverUrl": "http://example.com", "uploadHistory": {}}
+        accounts = [
+            {
+                "id": "jd-account",
+                "platform": "jd",
+                "displayName": "京东账号",
+                "enabled": True,
+                "cookieProtected": "dpapi:v1:jd-cookie",
+                "lastKnownLoginAccount": "if自营菠萝",
+                "shopName": "1",
+            }
+        ]
+
+        def fake_jd_capture(_config, _log):
+            return {
+                "loginAccount": "1",
+                "recordDate": "2026-05-12",
+                "subAccount": "未分配",
+                "consultationCount": 58,
+                "rawMetrics": {
+                    "source": "jd_workload",
+                    "requestParams": {"servicePin": "if自营菠萝"},
+                },
+            }
+
+        results = capture_enabled_accounts(
+            state,
+            accounts,
+            reason="手动采集",
+            capture_func=lambda _config, _log: {},
+            upload_func=lambda _state, _payload, _signature, _reason: ("服务端上传成功：上传成功。", {"uploadedAt": "2026-05-12 09:00:00"}),
+            log=lambda _message: None,
+            jd_capture_func=fake_jd_capture,
+        )
+
+        self.assertTrue(results[0]["ok"])
+        self.assertEqual(accounts[0]["lastKnownLoginAccount"], "if自营菠萝")
+
+    def test_mixed_qn_and_jd_batch_captures_both_platforms(self) -> None:
+        state = {"serverUrl": "http://example.com", "uploadHistory": {}}
+        accounts = [
+            {
+                "id": "qn-account",
+                "platform": "qn",
+                "displayName": "千牛账号",
+                "enabled": True,
+                "cookieProtected": "dpapi:v1:cookie",
+            },
+            {
+                "id": "jd-account",
+                "platform": "jd",
+                "displayName": "京东账号",
+                "enabled": True,
+                "cookieProtected": "dpapi:v1:cookie",
+            },
+        ]
+        captured_platforms = []
+        uploaded_sub_accounts = []
+
+        def fake_capture(config, _log):
+            captured_platforms.append(config["platform"])
+            return {"loginAccount": "远盛电商", "recordDate": "2026-05-09", "subAccount": "千牛账号"}
+
+        def fake_jd_capture(config, _log):
+            captured_platforms.append(config["platform"])
+            return {"loginAccount": "京东店铺", "recordDate": "2026-05-12", "subAccount": "京东账号"}
+
+        def fake_upload(_state, payload, _signature, _reason):
+            uploaded_sub_accounts.append(payload["subAccount"])
+            return "服务端上传成功：上传成功。", {"uploadedAt": "2026-05-09 09:00:00"}
+
+        results = capture_enabled_accounts(
+            state,
+            accounts,
+            reason="手动采集",
+            capture_func=fake_capture,
+            upload_func=fake_upload,
+            log=lambda _message: None,
+            jd_capture_func=fake_jd_capture,
+        )
+
+        self.assertEqual(captured_platforms, ["qn", "jd"])
+        self.assertEqual(uploaded_sub_accounts, ["千牛账号", "京东账号"])
+        self.assertTrue(results[0]["ok"])
+        self.assertTrue(results[1]["ok"])
+
+    def test_jd_missing_service_pin_is_capture_failure_not_relogin(self) -> None:
+        state = {"serverUrl": "http://example.com", "uploadHistory": {}}
+        accounts = [
+            {
+                "id": "jd-account",
+                "platform": "jd",
+                "displayName": "京东账号",
+                "enabled": True,
+                "cookieProtected": "dpapi:v1:jd-cookie",
+            }
+        ]
+
+        def fake_jd_capture(_config, _log):
+            raise JdWorkloadIdentityRequiredError("京东客服账号识别名为空，请先登录或补充登录识别名。")
+
+        results = capture_enabled_accounts(
+            state,
+            accounts,
+            reason="手动采集",
+            capture_func=lambda _config, _log: {},
+            upload_func=lambda _state, _payload, _signature, _reason: ("", None),
+            log=lambda _message: None,
+            jd_capture_func=fake_jd_capture,
+        )
+
+        self.assertFalse(results[0]["ok"])
+        self.assertEqual(results[0]["errorType"], "generic")
+        self.assertEqual(accounts[0]["loginStatus"], "采集失败")
+        self.assertEqual(accounts[0]["lastFailureReason"], "采集失败")
+
+    def test_missing_platform_still_uses_qn_capture(self) -> None:
+        state = {"serverUrl": "http://example.com", "uploadHistory": {}}
+        accounts = [
+            {
+                "id": "legacy-account",
+                "displayName": "旧账号",
+                "enabled": True,
+                "cookieProtected": "dpapi:v1:cookie",
+            }
+        ]
+        captured_platforms = []
+
+        def fake_capture(config, _log):
+            captured_platforms.append(config["platform"])
+            return {"loginAccount": "远盛电商", "recordDate": "2026-05-09", "subAccount": "旧账号"}
+
+        results = capture_enabled_accounts(
+            state,
+            accounts,
+            reason="手动采集",
+            capture_func=fake_capture,
+            upload_func=lambda _state, _payload, _signature, _reason: ("服务端上传成功：上传成功。", {"uploadedAt": "2026-05-09 09:00:00"}),
+            log=lambda _message: None,
+        )
+
+        self.assertEqual(captured_platforms, ["qn"])
+        self.assertTrue(results[0]["ok"])
 
 
 if __name__ == "__main__":

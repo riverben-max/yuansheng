@@ -23,7 +23,15 @@ from direct_api_capture import (
     update_direct_api_cookie,
 )
 from external_capture import LoginRequiredError, capture_with_external_chrome, inspect_existing_shadow_browser_state
+from jd_workload_capture import capture_jd_workload
 from login_accounts import add_login_account, build_account_state, capture_enabled_accounts, ensure_login_accounts
+from platform_config import (
+    JD_LOGIN_URL,
+    QN_LOGIN_URL,
+    is_jd_login_success_page,
+    login_start_url_for_platform,
+    normalize_platform,
+)
 from secure_storage import protect_text
 from shadow_browser import (
     ChromeNotFoundError,
@@ -107,6 +115,7 @@ class SidecarApp:
         emit: Callable[[Mapping[str, Any]], None] = write_json_line,
         capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]] | None = None,
         direct_capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]] | None = None,
+        jd_capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]] | None = None,
         upload_func: Callable[[MutableMapping[str, Any], Mapping[str, Any], str, str], tuple[str, Mapping[str, Any] | None]] | None = None,
     ):
         self.data_dir = data_dir or app_data_dir()
@@ -114,6 +123,7 @@ class SidecarApp:
         self.emit = emit
         self.capture_func = capture_func or capture_with_external_chrome
         self.direct_capture_func = direct_capture_func or capture_with_direct_api
+        self.jd_capture_func = jd_capture_func or capture_jd_workload
         self.upload_func = upload_func or upload_payload_with_state
 
     def load_state(self) -> Dict[str, Any]:
@@ -215,6 +225,8 @@ class SidecarApp:
             self.data_dir,
             display_name=str(payload.get("displayName") or "新登录账户"),
             login_hint=str(payload.get("loginHint") or ""),
+            platform=str(payload.get("platform") or "qn"),
+            shop_name=str(payload.get("shopName") or ""),
         )
         if "enabled" in payload:
             account["enabled"] = bool(payload.get("enabled"))
@@ -227,9 +239,11 @@ class SidecarApp:
         account = self.find_account(state, account_id)
         if account is None:
             raise ValueError("登录账户不存在。")
-        for key in ("displayName", "loginHint", "profileDir"):
+        for key in ("displayName", "loginHint", "profileDir", "shopName"):
             if key in payload:
                 account[key] = str(payload.get(key) or "").strip()
+        if "platform" in payload:
+            account["platform"] = _normalize_platform(payload.get("platform"))
         if "chromePort" in payload:
             account["chromePort"] = int(payload.get("chromePort") or 9222)
         if "enabled" in payload:
@@ -285,6 +299,7 @@ class SidecarApp:
             launch_state = dict(login_state)
             launch_state["chromePort"] = 0
             launch_state.pop("activeChromePort", None)
+            launch_state["shadowChromeStartupUrl"] = login_start_url_for_platform(account.get("platform"))
             kill_drission_temp_browsers(int(login_state.get("activeChromePort") or login_state.get("chromePort") or 0), self.log)
             session = launch_shadow_browser_for_login(launch_state, self.log)
             browser_state = {
@@ -372,8 +387,10 @@ class SidecarApp:
         if active_port > 0:
             account["activeChromePort"] = active_port
         account["cookieSummary"] = format_cookie_diagnostics(cookie_header) if cookie_header else ""
+        if normalize_platform(account.get("platform")) == "jd":
+            self.log(_format_jd_login_diagnostics(browser_state, cookie_header))
 
-        if not _browser_state_is_login_ready(browser_state, cookie_summary):
+        if not _browser_state_is_login_ready(browser_state, cookie_summary, account.get("platform"), cookie_header):
             account["loginStatus"] = "等待扫码"
             account["lastError"] = ""
             self.save_state(state)
@@ -483,6 +500,7 @@ class SidecarApp:
                     capture_func=self.direct_capture_func,
                     upload_func=self.upload_func,
                     log=self.log,
+                    jd_capture_func=self.jd_capture_func,
                 )
                 state["lastRunAt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self._trim_upload_history(state)
@@ -516,6 +534,7 @@ class SidecarApp:
             capture_func=self.direct_capture_func,
             upload_func=self.upload_func,
             log=self.log,
+            jd_capture_func=self.jd_capture_func,
         )
         self.save_state(state)
         self.emit(event("status", status="待命", danger=False))
@@ -688,7 +707,16 @@ def _cookie_summary_is_login_ready(summary: Mapping[str, Any]) -> bool:
     return bool(summary.get("hasMtopToken") and has_user_marker and summary.get("mtopExpired") is not True)
 
 
-def _browser_state_is_login_ready(browser_state: Mapping[str, Any], cookie_summary: Mapping[str, Any]) -> bool:
+def _browser_state_is_login_ready(
+    browser_state: Mapping[str, Any],
+    cookie_summary: Mapping[str, Any],
+    platform: Any = "qn",
+    cookie_header: str = "",
+) -> bool:
+    if normalize_platform(platform) == "jd":
+        page_url = str(browser_state.get("pageUrl") or browser_state.get("url") or "").strip()
+        cookie_name_set = set(_cookie_names(cookie_header))
+        return bool(is_jd_login_success_page(page_url) and {"pin", "thor"}.issubset(cookie_name_set))
     return bool(browser_state.get("loggedIn") is True and _cookie_summary_is_login_ready(cookie_summary))
 
 
@@ -756,6 +784,37 @@ def _account_cookie_status(account: Mapping[str, Any]) -> str:
     return "未登录"
 
 
+def _normalize_platform(raw: Any) -> str:
+    return normalize_platform(raw)
+
+
+def _format_jd_login_diagnostics(browser_state: Mapping[str, Any], cookie_header: str) -> str:
+    page_url = str(browser_state.get("pageUrl") or browser_state.get("url") or "").strip() or "--"
+    cookie_names = _cookie_names(cookie_header)
+    name_set = set(cookie_names)
+    return (
+        f"京东登录诊断：url={page_url}，"
+        f"cookieCount={len(cookie_names)}，"
+        f"cookieNames={','.join(cookie_names) or '--'}，"
+        f"hasPin={_yes_no('pin' in name_set)}，"
+        f"hasPtPin={_yes_no('pt_pin' in name_set)}，"
+        f"hasThor={_yes_no('thor' in name_set)}"
+    )
+
+
+def _cookie_names(cookie_header: str) -> list[str]:
+    names: set[str] = set()
+    for part in str(cookie_header or "").split(";"):
+        name, sep, _value = part.strip().partition("=")
+        if sep and name:
+            names.add(name)
+    return sorted(names)
+
+
+def _yes_no(value: bool) -> str:
+    return "是" if value else "否"
+
+
 def _resolve_login_identity(browser_state: Mapping[str, Any], cookie_header: str) -> str:
     for key in ("currentNick", "loginAccount", "nick", "displayNick"):
         text = str(browser_state.get(key) or "").strip()
@@ -767,7 +826,7 @@ def _resolve_login_identity(browser_state: Mapping[str, Any], cookie_header: str
         name, sep, value = part.strip().partition("=")
         if sep and name:
             cookie_values[name] = value
-    for name in ("sn", "_nk_", "tracknick", "lgc"):
+    for name in ("sn", "_nk_", "tracknick", "lgc", "pin", "pt_pin"):
         value = str(cookie_values.get(name) or "").strip()
         if value:
             return unquote(value)

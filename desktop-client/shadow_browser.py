@@ -11,11 +11,12 @@ import winreg
 
 import psutil
 
+from platform_config import QN_LOGIN_URL
 from spider_core import EMPLOYEE_TARGET_URL
 
 DEFAULT_REMOTE_PORT = 9222
 DEFAULT_DISK_CACHE_SIZE = 10 * 1024 * 1024
-LOGIN_START_URL = "https://loginmyseller.taobao.com/"
+LOGIN_START_URL = QN_LOGIN_URL
 WINDOW_SIZE = "1280,900"
 VISIBLE_POSITION = "120,120"
 HIDDEN_POSITION = VISIBLE_POSITION
@@ -182,7 +183,7 @@ def launch_shadow_browser_for_login(config: Mapping[str, Any], log: Callable[[st
         profile_dir=profile_dir,
         port=port,
         visible=True,
-        startup_url=LOGIN_START_URL,
+        startup_url=_resolve_login_startup_url(config),
     )
     runtime_port = port
     if port == 0:
@@ -394,6 +395,10 @@ def _resolve_profile_dir(config: Mapping[str, Any]) -> Path:
 
 def _resolve_startup_url(config: Mapping[str, Any]) -> str:
     return str(config.get("shadowChromeStartupUrl") or EMPLOYEE_TARGET_URL).strip() or EMPLOYEE_TARGET_URL
+
+
+def _resolve_login_startup_url(config: Mapping[str, Any]) -> str:
+    return str(config.get("shadowChromeStartupUrl") or LOGIN_START_URL).strip() or LOGIN_START_URL
 
 
 def _move_shadow_browser_window(

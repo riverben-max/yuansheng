@@ -10,9 +10,11 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, MutableMapping
 from shadow_browser import DEFAULT_REMOTE_PORT, default_shadow_profile_dir
 from spider_core import format_employee_summary, payload_signature
 from direct_api_capture import DirectApiCaptureError
+from jd_workload_capture import capture_jd_workload
 
 
 LoginAccount = Dict[str, Any]
+VALID_PLATFORMS = {"qn", "jd"}
 DISPLAY_METRIC_KEYS = (
     "consultationCount",
     "receiveCount",
@@ -41,6 +43,8 @@ def add_login_account(
     data_dir: Path,
     display_name: str,
     login_hint: str = "",
+    platform: str = "qn",
+    shop_name: str = "",
 ) -> LoginAccount:
     accounts = ensure_login_accounts(state, data_dir)
 
@@ -51,6 +55,8 @@ def add_login_account(
         "id": _next_account_id(accounts),
         "displayName": clean_name,
         "loginHint": clean_hint,
+        "platform": _normalize_platform(platform),
+        "shopName": str(shop_name or "").strip(),
         "enabled": True,
         "profileDir": str(data_dir / "profiles" / slug),
         "chromePort": 0,
@@ -70,15 +76,18 @@ def capture_enabled_accounts(
     capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]],
     upload_func: Callable[[MutableMapping[str, Any], Mapping[str, Any], str, str], tuple[str, Mapping[str, Any] | None]],
     log: Callable[[str], None],
+    jd_capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]] | None = None,
 ) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
     enabled_accounts = [account for account in accounts if bool(account.get("enabled", True))]
     for index, account in enumerate(enabled_accounts, start=1):
         display_name = str(account.get("displayName") or account.get("loginHint") or account.get("id") or "").strip()
         log(f"开始采集登录账户 {index}/{len(enabled_accounts)}：{display_name or '--'}。")
+        platform = _normalize_platform(account.get("platform"))
         try:
             account_state = build_account_state(state, account)
-            payload = dict(capture_func(account_state, log))
+            selected_capture_func = (jd_capture_func or capture_jd_workload) if platform == "jd" else capture_func
+            payload = dict(selected_capture_func(account_state, log))
             signature = payload_signature(payload)
             upload_message, upload_record = upload_func(state, payload, signature, reason)
         except Exception as exc:
@@ -114,7 +123,7 @@ def capture_enabled_accounts(
         summary = format_employee_summary(payload)
         now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         upload_succeeded = _upload_succeeded(upload_message, upload_record)
-        failure_reason = "" if upload_succeeded else "上传失败"
+        failure_reason = "" if upload_succeeded else _upload_failure_reason(upload_message)
         capture_summary = _build_capture_summary(
             display_name=display_name,
             payload=payload,
@@ -128,7 +137,7 @@ def capture_enabled_accounts(
         account["lastError"] = ""
         account["lastFailureReason"] = failure_reason
         account["lastCaptureSummary"] = capture_summary
-        account["lastKnownLoginAccount"] = payload.get("loginAccount") or payload.get("subAccount") or ""
+        account["lastKnownLoginAccount"] = _capture_identity_for_account(account, payload)
         if upload_record is not None:
             account["lastUploadAt"] = now_text
 
@@ -164,6 +173,8 @@ def build_account_state(state: Mapping[str, Any], account: Mapping[str, Any]) ->
     account_state["captureEngine"] = "direct_api"
     account_state["directApiPreferred"] = True
     account_state["accountCookieRequired"] = True
+    account_state["platform"] = _normalize_platform(account.get("platform"))
+    account_state["shopName"] = str(account.get("shopName") or "").strip()
     account_state["shadowChromeProfileDir"] = profile_dir
     account_state["chromeUserDataDir"] = profile_dir
     account_state["chromePort"] = _account_port(account)
@@ -176,7 +187,10 @@ def build_account_state(state: Mapping[str, Any], account: Mapping[str, Any]) ->
     active_port = _positive_int(account.get("activeChromePort"))
     if active_port:
         account_state["activeChromePort"] = active_port
-    login_hint = str(account.get("loginHint") or account.get("lastKnownLoginAccount") or "").strip()
+    raw_login_hint = str(account.get("loginHint") or "").strip()
+    if raw_login_hint:
+        account_state["loginHint"] = raw_login_hint
+    login_hint = str(account.get("lastKnownLoginAccount") or account.get("loginHint") or "").strip()
     if login_hint:
         account_state["lastKnownLoginAccount"] = login_hint
     return account_state
@@ -194,6 +208,8 @@ def _normalize_account(raw: Any, data_dir: Path, index: int) -> LoginAccount:
             "id": str(account.get("id") or f"account-{index + 1}"),
             "displayName": display_name,
             "loginHint": login_hint,
+            "platform": _normalize_platform(account.get("platform")),
+            "shopName": str(account.get("shopName") or "").strip(),
             "enabled": bool(account.get("enabled", True)),
             "profileDir": profile_dir,
             "chromePort": _account_port(account),
@@ -220,6 +236,8 @@ def _legacy_account_from_state(state: Mapping[str, Any], data_dir: Path) -> Logi
         "id": "default",
         "displayName": display_name,
         "loginHint": display_name if display_name != "默认账号" else "",
+        "platform": "qn",
+        "shopName": "",
         "enabled": True,
         "profileDir": profile_dir,
         "chromePort": 0,
@@ -228,6 +246,11 @@ def _legacy_account_from_state(state: Mapping[str, Any], data_dir: Path) -> Logi
         "lastResult": str(state.get("lastPayloadSummary") or ""),
         "lastError": "",
     }
+
+
+def _normalize_platform(raw: Any) -> str:
+    platform = str(raw or "").strip().lower()
+    return platform if platform in VALID_PLATFORMS else "qn"
 
 
 def _profile_slug(value: str) -> str:
@@ -267,11 +290,15 @@ def _positive_int(raw: Any) -> int:
 
 
 def _looks_like_login_error(exc: Exception) -> bool:
+    if exc.__class__.__name__ == "JdWorkloadIdentityRequiredError":
+        return False
     text = str(exc)
     return "登录" in text or exc.__class__.__name__ in {"LoginRequiredError", "DirectApiLoginRequiredError"}
 
 
 def _failure_reason(exc: Exception) -> str:
+    if exc.__class__.__name__ == "JdWorkloadIdentityRequiredError":
+        return "采集失败"
     if _looks_like_login_error(exc):
         return "需要重新登录"
     if isinstance(exc, DirectApiCaptureError):
@@ -284,6 +311,32 @@ def _upload_succeeded(upload_message: str, upload_record: Mapping[str, Any] | No
         return True
     message = str(upload_message or "")
     return "上传成功" in message or "已上传过" in message or "跳过重复上传" in message
+
+
+def _upload_failure_reason(upload_message: str) -> str:
+    message = str(upload_message or "")
+    if "未找到员工账号映射" in message:
+        return "平台未配置客服账号"
+    return "上传失败"
+
+
+def _capture_identity_for_account(account: Mapping[str, Any], payload: Mapping[str, Any]) -> str:
+    platform = _normalize_platform(account.get("platform"))
+    if platform == "jd":
+        raw_metrics = payload.get("rawMetrics")
+        request_params = raw_metrics.get("requestParams") if isinstance(raw_metrics, Mapping) else None
+        service_pin = str(request_params.get("servicePin") or "").strip() if isinstance(request_params, Mapping) else ""
+        for value in (
+            service_pin,
+            account.get("lastKnownLoginAccount"),
+            account.get("loginHint"),
+            payload.get("subAccount"),
+        ):
+            text = str(value or "").strip()
+            if text:
+                return text
+        return ""
+    return str(payload.get("loginAccount") or payload.get("subAccount") or "").strip()
 
 
 def _build_capture_summary(

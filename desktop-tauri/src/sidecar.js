@@ -16,6 +16,8 @@ const demoState = {
     {
       id: "default",
       enabled: true,
+      platform: "qn",
+      shopName: "",
       displayName: "默认账号",
       loginHint: "",
       chromePort: 0,
@@ -51,6 +53,8 @@ function runDemoCommand(command, payload) {
     const account = {
       id: `account-${Date.now()}`,
       enabled: true,
+      platform: normalizePlatform(payload.platform),
+      shopName: payload.shopName || "",
       displayName: payload.displayName || "新登录账户",
       loginHint: payload.loginHint || "",
       chromePort: 0,
@@ -64,7 +68,12 @@ function runDemoCommand(command, payload) {
   }
   if (command === "account_update") {
     const account = demoState.loginAccounts.find((item) => item.id === payload.id);
-    if (account) Object.assign(account, payload);
+    if (account) {
+      Object.assign(account, payload, {
+        platform: normalizePlatform(payload.platform || account.platform),
+        shopName: payload.shopName || "",
+      });
+    }
     return Promise.resolve({ ok: true, data: account, events: [] });
   }
   if (command === "account_delete") {
@@ -141,4 +150,8 @@ function runDemoCommand(command, payload) {
       { type: "status", status: "待命", danger: false },
     ],
   });
+}
+
+function normalizePlatform(platform) {
+  return ["qn", "jd"].includes(platform) ? platform : "qn";
 }
