@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { normalizePlatform } from "./platforms.js";
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -150,8 +151,4 @@ function runDemoCommand(command, payload) {
       { type: "status", status: "待命", danger: false },
     ],
   });
-}
-
-function normalizePlatform(platform) {
-  return ["qn", "jd"].includes(platform) ? platform : "qn";
 }

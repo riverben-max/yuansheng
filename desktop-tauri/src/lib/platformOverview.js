@@ -1,14 +1,14 @@
-import { ACCOUNT_PLATFORM_OPTIONS, normalizePlatform, platformLabel } from "./accountMatrix.js";
+import { PLATFORMS, normalizePlatform, platformLabel } from "./platforms.js";
 
 export function buildPlatformSummaries(accounts) {
   const source = Array.isArray(accounts) ? accounts : [];
-  return ACCOUNT_PLATFORM_OPTIONS.map((option) => {
-    const platformAccounts = source.filter((account) => normalizePlatform(account?.platform) === option.value);
+  return PLATFORMS.map((p) => {
+    const platformAccounts = source.filter((account) => normalizePlatform(account?.platform) === p.value);
     const enabledAccounts = platformAccounts.filter((account) => account.enabled);
     const latestAccount = findLatestCaptureAccount(platformAccounts);
     return {
-      platform: option.value,
-      label: platformLabel(option.value),
+      platform: p.value,
+      label: platformLabel(p.value),
       accountCount: platformAccounts.length,
       enabledCount: enabledAccounts.length,
       loggedInCount: enabledAccounts.filter(isAccountCaptureReady).length,
