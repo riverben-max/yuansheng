@@ -1,23 +1,21 @@
-export const ACCOUNT_PLATFORM_OPTIONS = [
-  { value: "qn", label: "千牛" },
-  { value: "jd", label: "京东" },
-];
+import {
+  normalizePlatform,
+  platformLabel,
+  PLATFORMS,
+  platformFilterOptions,
+  DEFAULT_PLATFORM,
+} from "./platforms.js";
 
-export const PLATFORM_FILTER_OPTIONS = [{ value: "all", label: "全部" }, ...ACCOUNT_PLATFORM_OPTIONS];
+export const ACCOUNT_PLATFORM_OPTIONS = PLATFORMS.map((p) => ({ value: p.value, label: p.label }));
+export const PLATFORM_FILTER_OPTIONS = platformFilterOptions();
 
-const ACCOUNT_PLATFORMS = new Set(ACCOUNT_PLATFORM_OPTIONS.map((item) => item.value));
+const ACCOUNT_PLATFORMS = new Set(PLATFORMS.map((p) => p.value));
 const PLATFORM_FILTERS = new Set(PLATFORM_FILTER_OPTIONS.map((item) => item.value));
 
-export function normalizePlatform(platform) {
-  return ACCOUNT_PLATFORMS.has(platform) ? platform : "qn";
-}
+export { normalizePlatform, platformLabel };
 
 export function normalizePlatformFilter(filter) {
   return PLATFORM_FILTERS.has(filter) ? filter : "all";
-}
-
-export function platformLabel(platform) {
-  return ACCOUNT_PLATFORM_OPTIONS.find((item) => item.value === normalizePlatform(platform))?.label || "千牛";
 }
 
 export function accountMatchesPlatformFilter(account, filter) {
@@ -46,7 +44,8 @@ export function summarizeAccounts(accounts, filter) {
 }
 
 export function defaultPlatformForNewAccount(filter) {
-  return normalizePlatformFilter(filter) === "jd" ? "jd" : "qn";
+  const normalized = normalizePlatformFilter(filter);
+  return ACCOUNT_PLATFORMS.has(normalized) ? normalized : DEFAULT_PLATFORM;
 }
 
 export function selectedAccountVisible(account, filter) {
