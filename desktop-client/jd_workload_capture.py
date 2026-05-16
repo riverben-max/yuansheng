@@ -191,6 +191,7 @@ def parse_jd_workload_payload(
         "satisfaction": _metric("satisfaction", row.get("satisfiedRate")),
         "rawMetrics": {
             "source": "jd_workload",
+            "accountIdentity": service_pin,
             "requestUrl": JD_WORKLOAD_QUERY_URL,
             "requestParams": dict(request_params),
             "rowData": dict(row),

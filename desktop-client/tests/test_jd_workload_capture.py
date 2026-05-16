@@ -103,6 +103,7 @@ class JdWorkloadCaptureTests(unittest.TestCase):
         self.assertEqual(payload["wwReplyRate"], 100.0)
         self.assertEqual(payload["satisfaction"], 75.0)
         self.assertEqual(payload["rawMetrics"]["source"], "jd_workload")
+        self.assertEqual(payload["rawMetrics"]["accountIdentity"], "if自营菠萝")
         self.assertEqual(payload["rawMetrics"]["requestParams"]["servicePin"], "if自营菠萝")
         self.assertEqual(payload["rawMetrics"]["rowData"]["onlineTime"], 16.2)
         self.assertEqual(payload["rawMetrics"]["totalDetail"]["consultNum"], 58)

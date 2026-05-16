@@ -236,7 +236,7 @@ class BatchCaptureTests(unittest.TestCase):
             capture_func=lambda _config, _log: {},
             upload_func=lambda _state, _payload, _signature, _reason: (upload_message, None),
             log=lambda _message: None,
-            jd_capture_func=fake_capture,
+            capture_adapters={"jd": fake_capture},
         )
 
         self.assertTrue(results[0]["ok"])
@@ -404,6 +404,7 @@ class BatchCaptureTests(unittest.TestCase):
                 "consultationCount": 58,
                 "rawMetrics": {
                     "source": "jd_workload",
+                    "accountIdentity": "if自营菠萝",
                     "requestParams": {"servicePin": "if自营菠萝"},
                 },
             }
@@ -419,7 +420,7 @@ class BatchCaptureTests(unittest.TestCase):
             capture_func=fail_capture,
             upload_func=fake_upload,
             log=lambda _message: None,
-            jd_capture_func=fake_jd_capture,
+            capture_adapters={"qn": fail_capture, "jd": fake_jd_capture},
         )
 
         self.assertEqual(len(results), 1)
@@ -452,6 +453,7 @@ class BatchCaptureTests(unittest.TestCase):
                 "consultationCount": 58,
                 "rawMetrics": {
                     "source": "jd_workload",
+                    "accountIdentity": "if自营菠萝",
                     "requestParams": {"servicePin": "if自营菠萝"},
                 },
             }
@@ -463,7 +465,7 @@ class BatchCaptureTests(unittest.TestCase):
             capture_func=lambda _config, _log: {},
             upload_func=lambda _state, _payload, _signature, _reason: ("服务端上传成功：上传成功。", {"uploadedAt": "2026-05-12 09:00:00"}),
             log=lambda _message: None,
-            jd_capture_func=fake_jd_capture,
+            capture_adapters={"jd": fake_jd_capture},
         )
 
         self.assertTrue(results[0]["ok"])
@@ -509,7 +511,7 @@ class BatchCaptureTests(unittest.TestCase):
             capture_func=fake_capture,
             upload_func=fake_upload,
             log=lambda _message: None,
-            jd_capture_func=fake_jd_capture,
+            capture_adapters={"qn": fake_capture, "jd": fake_jd_capture},
         )
 
         self.assertEqual(captured_platforms, ["qn", "jd"])
@@ -539,13 +541,45 @@ class BatchCaptureTests(unittest.TestCase):
             capture_func=lambda _config, _log: {},
             upload_func=lambda _state, _payload, _signature, _reason: ("", None),
             log=lambda _message: None,
-            jd_capture_func=fake_jd_capture,
+            capture_adapters={"jd": fake_jd_capture},
         )
 
         self.assertFalse(results[0]["ok"])
         self.assertEqual(results[0]["errorType"], "generic")
         self.assertEqual(accounts[0]["loginStatus"], "采集失败")
         self.assertEqual(accounts[0]["lastFailureReason"], "采集失败")
+
+    def test_jd_account_without_registered_adapter_fails_instead_of_using_qn_capture(self) -> None:
+        state = {"serverUrl": "http://example.com", "uploadHistory": {}}
+        accounts = [
+            {
+                "id": "jd-account",
+                "platform": "jd",
+                "displayName": "京东账号",
+                "enabled": True,
+                "cookieProtected": "dpapi:v1:jd-cookie",
+            }
+        ]
+        captured_platforms = []
+
+        def fake_capture(config, _log):
+            captured_platforms.append(config["platform"])
+            return {"loginAccount": "远盛电商", "recordDate": "2026-05-09", "subAccount": "误采集"}
+
+        results = capture_enabled_accounts(
+            state,
+            accounts,
+            reason="手动采集",
+            capture_func=fake_capture,
+            upload_func=lambda _state, _payload, _signature, _reason: ("", None),
+            log=lambda _message: None,
+            capture_adapters={"qn": fake_capture},
+        )
+
+        self.assertEqual(captured_platforms, [])
+        self.assertFalse(results[0]["ok"])
+        self.assertEqual(accounts[0]["loginStatus"], "采集失败")
+        self.assertIn("未注册", results[0]["message"])
 
     def test_missing_platform_still_uses_qn_capture(self) -> None:
         state = {"serverUrl": "http://example.com", "uploadHistory": {}}
@@ -574,6 +608,40 @@ class BatchCaptureTests(unittest.TestCase):
 
         self.assertEqual(captured_platforms, ["qn"])
         self.assertTrue(results[0]["ok"])
+
+    def test_account_identity_uses_raw_metrics_identity_before_payload_names(self) -> None:
+        state = {"serverUrl": "http://example.com", "uploadHistory": {}}
+        accounts = [
+            {
+                "id": "custom-account",
+                "platform": "jd",
+                "displayName": "京东账号",
+                "enabled": True,
+                "cookieProtected": "dpapi:v1:cookie",
+                "loginHint": "hint-user",
+            }
+        ]
+
+        def fake_capture(_config, _log):
+            return {
+                "loginAccount": "店铺名",
+                "recordDate": "2026-05-12",
+                "subAccount": "页面客服名",
+                "rawMetrics": {"accountIdentity": "adapter-identity"},
+            }
+
+        results = capture_enabled_accounts(
+            state,
+            accounts,
+            reason="手动采集",
+            capture_func=lambda _config, _log: {},
+            upload_func=lambda _state, _payload, _signature, _reason: ("服务端上传成功：上传成功。", {"uploadedAt": "2026-05-12 09:00:00"}),
+            log=lambda _message: None,
+            capture_adapters={"jd": fake_capture},
+        )
+
+        self.assertTrue(results[0]["ok"])
+        self.assertEqual(accounts[0]["lastKnownLoginAccount"], "adapter-identity")
 
 
 if __name__ == "__main__":

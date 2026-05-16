@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, MutableMapping
 from shadow_browser import DEFAULT_REMOTE_PORT, default_shadow_profile_dir
 from spider_core import format_employee_summary, payload_signature
 from direct_api_capture import DirectApiCaptureError
-from jd_workload_capture import capture_jd_workload
+from platform_adapters import CaptureAdapter, select_capture_adapter
 
 
 LoginAccount = Dict[str, Any]
@@ -76,9 +76,10 @@ def capture_enabled_accounts(
     capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]],
     upload_func: Callable[[MutableMapping[str, Any], Mapping[str, Any], str, str], tuple[str, Mapping[str, Any] | None]],
     log: Callable[[str], None],
-    jd_capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]] | None = None,
+    capture_adapters: Mapping[str, CaptureAdapter] | None = None,
 ) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
+    adapters = capture_adapters or {"qn": capture_func}
     enabled_accounts = [account for account in accounts if bool(account.get("enabled", True))]
     for index, account in enumerate(enabled_accounts, start=1):
         display_name = str(account.get("displayName") or account.get("loginHint") or account.get("id") or "").strip()
@@ -86,7 +87,7 @@ def capture_enabled_accounts(
         platform = _normalize_platform(account.get("platform"))
         try:
             account_state = build_account_state(state, account)
-            selected_capture_func = (jd_capture_func or capture_jd_workload) if platform == "jd" else capture_func
+            selected_capture_func = select_capture_adapter(platform, adapters)
             payload = dict(selected_capture_func(account_state, log))
             signature = payload_signature(payload)
             upload_message, upload_record = upload_func(state, payload, signature, reason)
@@ -321,22 +322,19 @@ def _upload_failure_reason(upload_message: str) -> str:
 
 
 def _capture_identity_for_account(account: Mapping[str, Any], payload: Mapping[str, Any]) -> str:
-    platform = _normalize_platform(account.get("platform"))
-    if platform == "jd":
-        raw_metrics = payload.get("rawMetrics")
-        request_params = raw_metrics.get("requestParams") if isinstance(raw_metrics, Mapping) else None
-        service_pin = str(request_params.get("servicePin") or "").strip() if isinstance(request_params, Mapping) else ""
-        for value in (
-            service_pin,
-            account.get("lastKnownLoginAccount"),
-            account.get("loginHint"),
-            payload.get("subAccount"),
-        ):
-            text = str(value or "").strip()
-            if text:
-                return text
-        return ""
-    return str(payload.get("loginAccount") or payload.get("subAccount") or "").strip()
+    raw_metrics = payload.get("rawMetrics")
+    account_identity = raw_metrics.get("accountIdentity") if isinstance(raw_metrics, Mapping) else ""
+    for value in (
+        account_identity,
+        payload.get("loginAccount"),
+        payload.get("subAccount"),
+        account.get("lastKnownLoginAccount"),
+        account.get("loginHint"),
+    ):
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
 
 
 def _build_capture_summary(
