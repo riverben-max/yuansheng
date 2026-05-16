@@ -6,15 +6,21 @@ QN_LOGIN_URL = "https://loginmyseller.taobao.com/"
 JD_LOGIN_URL = "https://passport.jd.com/new/login.aspx?ReturnUrl=http%3A%2F%2Fkf.jd.com%2F"
 JD_SERVICE_URL = "https://kf.jd.com/"
 JD_DATA_URL = "https://kf.jd.com/#/43"
+PDD_LOGIN_URL = "https://mms.pinduoduo.com/"
 
 
 def normalize_platform(raw: object) -> str:
     platform = str(raw or "").strip().lower()
-    return platform if platform in {"qn", "jd"} else "qn"
+    return platform if platform in {"qn", "jd", "pdd"} else "qn"
 
 
 def login_start_url_for_platform(platform: object) -> str:
-    return JD_LOGIN_URL if normalize_platform(platform) == "jd" else QN_LOGIN_URL
+    normalized = normalize_platform(platform)
+    if normalized == "jd":
+        return JD_LOGIN_URL
+    if normalized == "pdd":
+        return PDD_LOGIN_URL
+    return QN_LOGIN_URL
 
 
 def is_jd_login_page(page_url: str) -> bool:

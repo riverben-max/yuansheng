@@ -98,6 +98,23 @@ class LoginAccountConfigTests(unittest.TestCase):
         self.assertEqual(account["platform"], "jd")
         self.assertEqual(account["shopName"], "医谷特膳膳养道专卖店")
 
+    def test_add_login_account_accepts_pdd_platform_and_shop_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            state = {}
+
+            account = add_login_account(
+                state,
+                data_dir,
+                display_name="拼多多账号",
+                login_hint="pdd-user",
+                platform="pdd",
+                shop_name="拼多多远盛店",
+            )
+
+        self.assertEqual(account["platform"], "pdd")
+        self.assertEqual(account["shopName"], "拼多多远盛店")
+
     def test_invalid_platform_normalizes_to_qn(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             data_dir = Path(temp_dir)
@@ -580,6 +597,38 @@ class BatchCaptureTests(unittest.TestCase):
         self.assertFalse(results[0]["ok"])
         self.assertEqual(accounts[0]["loginStatus"], "采集失败")
         self.assertIn("未注册", results[0]["message"])
+
+    def test_pdd_account_without_registered_adapter_fails_instead_of_using_qn_capture(self) -> None:
+        state = {"serverUrl": "http://example.com", "uploadHistory": {}}
+        accounts = [
+            {
+                "id": "pdd-account",
+                "platform": "pdd",
+                "displayName": "拼多多账号",
+                "enabled": True,
+                "cookieProtected": "dpapi:v1:pdd-cookie",
+            }
+        ]
+        captured_platforms = []
+
+        def fake_capture(config, _log):
+            captured_platforms.append(config["platform"])
+            return {"loginAccount": "远盛电商", "recordDate": "2026-05-09", "subAccount": "误采集"}
+
+        results = capture_enabled_accounts(
+            state,
+            accounts,
+            reason="手动采集",
+            capture_func=fake_capture,
+            upload_func=lambda _state, _payload, _signature, _reason: ("", None),
+            log=lambda _message: None,
+            capture_adapters={"qn": fake_capture},
+        )
+
+        self.assertEqual(captured_platforms, [])
+        self.assertFalse(results[0]["ok"])
+        self.assertEqual(accounts[0]["loginStatus"], "采集失败")
+        self.assertIn("平台 pdd 未注册采集适配器", results[0]["message"])
 
     def test_missing_platform_still_uses_qn_capture(self) -> None:
         state = {"serverUrl": "http://example.com", "uploadHistory": {}}

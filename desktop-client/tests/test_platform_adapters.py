@@ -19,6 +19,7 @@ class PlatformAdapterTests(unittest.TestCase):
 
         self.assertIs(select_capture_adapter("qn", adapters), qn_capture)
         self.assertIs(select_capture_adapter("jd", adapters), jd_capture)
+        self.assertNotIn("pdd", adapters)
 
     def test_unknown_platform_normalizes_to_qn(self) -> None:
         adapters = default_capture_adapters(qn_capture, jd_capture)
@@ -30,6 +31,8 @@ class PlatformAdapterTests(unittest.TestCase):
 
         with self.assertRaises(PlatformAdapterNotRegisteredError):
             select_capture_adapter("jd", adapters)
+        with self.assertRaises(PlatformAdapterNotRegisteredError):
+            select_capture_adapter("pdd", adapters)
 
 
 if __name__ == "__main__":

@@ -36,18 +36,29 @@ const accounts = [
       capturedAt: "2026-05-12 10:00:00",
     },
   },
+  {
+    id: "pdd-ready",
+    platform: "pdd",
+    enabled: true,
+    loginStatus: "已登录",
+    cookieStatus: "已保存",
+  },
 ];
 
-test("builds fixed qn and jd platform summaries and treats missing platform as qn", () => {
+test("builds fixed qn, jd and pdd platform summaries and treats missing platform as qn", () => {
   const summaries = buildPlatformSummaries(accounts);
 
-  assert.deepEqual(summaries.map((item) => item.platform), ["qn", "jd"]);
+  assert.deepEqual(summaries.map((item) => item.platform), ["qn", "jd", "pdd"]);
   assert.equal(summaries[0].accountCount, 2);
   assert.equal(summaries[0].enabledCount, 2);
   assert.equal(summaries[0].loggedInCount, 1);
   assert.equal(summaries[1].accountCount, 1);
   assert.equal(summaries[1].enabledCount, 1);
   assert.equal(summaries[1].loggedInCount, 1);
+  assert.equal(summaries[2].accountCount, 1);
+  assert.equal(summaries[2].enabledCount, 1);
+  assert.equal(summaries[2].loggedInCount, 1);
+  assert.equal(summaries[2].supportsCapture, false);
 });
 
 test("uses the latest capture result inside each platform", () => {
@@ -88,7 +99,7 @@ test("formats compact platform summary text", () => {
 });
 
 test("blocks a platform until its enabled accounts are logged in and enables ready jd capture", () => {
-  const [qnSummary, jdSummary] = buildPlatformSummaries(accounts);
+  const [qnSummary, jdSummary, pddSummary] = buildPlatformSummaries(accounts);
 
   assert.deepEqual(platformActionState(qnSummary), {
     disabled: true,
@@ -101,6 +112,12 @@ test("blocks a platform until its enabled accounts are logged in and enables rea
     reason: "ready",
     buttonText: "采集京东启用账号",
     hint: "",
+  });
+  assert.deepEqual(platformActionState(pddSummary), {
+    disabled: true,
+    reason: "unsupported",
+    buttonText: "采集拼多多启用账号",
+    hint: "拼多多采集暂未接入",
   });
 });
 

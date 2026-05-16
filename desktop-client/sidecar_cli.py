@@ -28,6 +28,7 @@ from login_accounts import add_login_account, build_account_state, capture_enabl
 from platform_adapters import default_capture_adapters
 from platform_config import (
     JD_LOGIN_URL,
+    PDD_LOGIN_URL,
     QN_LOGIN_URL,
     is_jd_login_success_page,
     login_start_url_for_platform,
@@ -388,8 +389,11 @@ class SidecarApp:
         if active_port > 0:
             account["activeChromePort"] = active_port
         account["cookieSummary"] = format_cookie_diagnostics(cookie_header) if cookie_header else ""
-        if normalize_platform(account.get("platform")) == "jd":
+        normalized_platform = normalize_platform(account.get("platform"))
+        if normalized_platform == "jd":
             self.log(_format_jd_login_diagnostics(browser_state, cookie_header))
+        elif normalized_platform == "pdd":
+            self.log(_format_pdd_login_diagnostics(browser_state, cookie_header))
 
         if not _browser_state_is_login_ready(browser_state, cookie_summary, account.get("platform"), cookie_header):
             account["loginStatus"] = "等待扫码"
@@ -718,6 +722,8 @@ def _browser_state_is_login_ready(
         page_url = str(browser_state.get("pageUrl") or browser_state.get("url") or "").strip()
         cookie_name_set = set(_cookie_names(cookie_header))
         return bool(is_jd_login_success_page(page_url) and {"pin", "thor"}.issubset(cookie_name_set))
+    if normalize_platform(platform) == "pdd":
+        return False
     return bool(browser_state.get("loggedIn") is True and _cookie_summary_is_login_ready(cookie_summary))
 
 
@@ -800,6 +806,16 @@ def _format_jd_login_diagnostics(browser_state: Mapping[str, Any], cookie_header
         f"hasPin={_yes_no('pin' in name_set)}，"
         f"hasPtPin={_yes_no('pt_pin' in name_set)}，"
         f"hasThor={_yes_no('thor' in name_set)}"
+    )
+
+
+def _format_pdd_login_diagnostics(browser_state: Mapping[str, Any], cookie_header: str) -> str:
+    page_url = str(browser_state.get("pageUrl") or browser_state.get("url") or "").strip() or "--"
+    cookie_names = _cookie_names(cookie_header)
+    return (
+        f"拼多多登录诊断：url={page_url}，"
+        f"cookieCount={len(cookie_names)}，"
+        f"cookieNames={','.join(cookie_names) or '--'}"
     )
 
 

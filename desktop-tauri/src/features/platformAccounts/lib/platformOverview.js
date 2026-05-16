@@ -1,4 +1,4 @@
-import { PLATFORMS, normalizePlatform, platformLabel } from "./platforms.js";
+import { PLATFORMS, normalizePlatform, platformLabel, platformSupportsCapture } from "./platforms.js";
 
 export function buildPlatformSummaries(accounts) {
   const source = Array.isArray(accounts) ? accounts : [];
@@ -14,6 +14,7 @@ export function buildPlatformSummaries(accounts) {
       loggedInCount: enabledAccounts.filter(isAccountCaptureReady).length,
       latestCaptureAt: latestAccount ? accountCaptureTime(latestAccount) : "",
       latestResultText: latestAccount ? accountResultText(latestAccount) : "尚未采集",
+      supportsCapture: platformSupportsCapture(p.value),
     };
   });
 }
@@ -25,6 +26,14 @@ export function platformSummaryText(summary) {
 export function platformActionState(summary) {
   const label = platformLabel(summary?.platform);
   const buttonText = `采集${label}启用账号`;
+  if (summary?.supportsCapture === false) {
+    return {
+      disabled: true,
+      reason: "unsupported",
+      buttonText,
+      hint: `${label}采集暂未接入`,
+    };
+  }
   if (!summary?.enabledCount) {
     return {
       disabled: true,

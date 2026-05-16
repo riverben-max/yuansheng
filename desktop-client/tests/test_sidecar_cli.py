@@ -143,6 +143,39 @@ class SidecarAccountTests(unittest.TestCase):
         self.assertEqual(deleted["data"]["id"], account_id)
         self.assertNotIn(account_id, [item["id"] for item in state["loginAccounts"]])
 
+    def test_account_create_update_keeps_pdd_platform_in_public_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = SidecarApp(data_dir=Path(temp_dir), emit=lambda _event: None)
+            original_is_autostart_enabled = sidecar_cli.is_autostart_enabled
+            sidecar_cli.is_autostart_enabled = lambda: False
+
+            try:
+                created = app.account_create(
+                    {
+                        "displayName": "拼多多账号",
+                        "loginHint": "pdd-user",
+                        "platform": "pdd",
+                        "shopName": "拼多多远盛店",
+                    }
+                )
+                account_id = created["data"]["id"]
+                updated = app.account_update(
+                    {
+                        "id": account_id,
+                        "platform": "pdd",
+                        "shopName": "拼多多远盛旗舰店",
+                    }
+                )
+                public_state = app.get_state({})["data"]
+            finally:
+                sidecar_cli.is_autostart_enabled = original_is_autostart_enabled
+
+        public_account = next(item for item in public_state["loginAccounts"] if item["id"] == account_id)
+        self.assertEqual(created["data"]["platform"], "pdd")
+        self.assertEqual(updated["data"]["platform"], "pdd")
+        self.assertEqual(public_account["platform"], "pdd")
+        self.assertEqual(public_account["shopName"], "拼多多远盛旗舰店")
+
     def test_start_login_requires_selected_account(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             app = SidecarApp(data_dir=Path(temp_dir), emit=lambda _event: None)
@@ -309,6 +342,14 @@ class SidecarAccountTests(unittest.TestCase):
                     "chromePort": 9223,
                     "enabled": True,
                 },
+                {
+                    "id": "pdd-account",
+                    "platform": "pdd",
+                    "displayName": "拼多多账号",
+                    "profileDir": str(data_dir / "profiles" / "pdd"),
+                    "chromePort": 9224,
+                    "enabled": True,
+                },
             ]
             app.save_state(state)
 
@@ -323,14 +364,21 @@ class SidecarAccountTests(unittest.TestCase):
                 reloaded["loginAccounts"][0]["shadowChromePid"] = 0
                 app.save_state(reloaded)
                 jd_result = app.start_login({"accountId": "jd-account"})
+                reloaded = app.load_state()
+                reloaded["loginAccounts"][1]["loginStatus"] = "登录窗口已关闭"
+                reloaded["loginAccounts"][1]["shadowChromePid"] = 0
+                app.save_state(reloaded)
+                pdd_result = app.start_login({"accountId": "pdd-account"})
             finally:
                 sidecar_cli.shutdown_shadow_browser = original_shutdown
                 sidecar_cli.launch_shadow_browser_for_login = original_launch
 
         self.assertTrue(qn_result["ok"])
         self.assertTrue(jd_result["ok"])
+        self.assertTrue(pdd_result["ok"])
         self.assertEqual(opened_configs[0]["shadowChromeStartupUrl"], sidecar_cli.QN_LOGIN_URL)
         self.assertEqual(opened_configs[1]["shadowChromeStartupUrl"], sidecar_cli.JD_LOGIN_URL)
+        self.assertEqual(opened_configs[2]["shadowChromeStartupUrl"], sidecar_cli.PDD_LOGIN_URL)
 
     def test_concurrent_start_login_reuses_single_login_session(self) -> None:
         opened_configs = []
@@ -862,6 +910,66 @@ class SidecarAccountTests(unittest.TestCase):
         self.assertNotIn("secret", diagnostic)
         self.assertNotIn("secret-thor", diagnostic)
 
+    def test_poll_login_for_pdd_logs_diagnostics_but_does_not_save_cookie(self) -> None:
+        events = []
+        shutdown_calls = []
+        cookie = "api_uid=secret-api; pdd_user_id=secret-user; PDDAccessToken=secret-token"
+
+        def fake_inspect(_config, _log):
+            return {
+                "cookieHeader": cookie,
+                "loggedIn": True,
+                "pageUrl": "https://mms.pinduoduo.com/home",
+                "pageTitle": "拼多多商家后台",
+                "currentNick": "拼多多远盛店",
+                "shadowChromePid": 2345,
+                "activeChromePort": 45678,
+            }
+
+        def fail_protect(_value):
+            raise AssertionError("3A 不应保存拼多多 Cookie 成功态")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = SidecarApp(data_dir=Path(temp_dir), emit=events.append)
+            state = app.load_state()
+            state["loginAccounts"][0]["platform"] = "pdd"
+            state["loginAccounts"][0]["loginStatus"] = "等待登录"
+            state["loginAccounts"][0]["activeChromePort"] = 45678
+            app.save_state(state)
+
+            original_inspect = sidecar_cli.inspect_existing_shadow_browser_state
+            original_protect = sidecar_cli.protect_text
+            original_shutdown = sidecar_cli.shutdown_shadow_browser
+            sidecar_cli.inspect_existing_shadow_browser_state = fake_inspect
+            sidecar_cli.protect_text = fail_protect
+            sidecar_cli.shutdown_shadow_browser = lambda config, _log: shutdown_calls.append(config) or 1
+            try:
+                result = app.poll_login({"accountId": "default"})
+                reloaded = app.load_state()
+            finally:
+                sidecar_cli.inspect_existing_shadow_browser_state = original_inspect
+                sidecar_cli.protect_text = original_protect
+                sidecar_cli.shutdown_shadow_browser = original_shutdown
+
+        account = reloaded["loginAccounts"][0]
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["data"]["loggedIn"])
+        self.assertEqual(result["data"]["status"], "等待扫码")
+        self.assertNotIn("cookieProtected", account)
+        self.assertEqual(account["loginStatus"], "等待扫码")
+        self.assertEqual(shutdown_calls, [])
+        diagnostic_logs = [
+            str(item.get("message") or "")
+            for item in events
+            if item.get("type") == "log" and "拼多多登录诊断" in str(item.get("message") or "")
+        ]
+        self.assertEqual(len(diagnostic_logs), 1)
+        diagnostic = diagnostic_logs[0]
+        self.assertIn("url=https://mms.pinduoduo.com/home", diagnostic)
+        self.assertIn("cookieCount=3", diagnostic)
+        self.assertIn("cookieNames=PDDAccessToken,api_uid,pdd_user_id", diagnostic)
+        self.assertNotIn("secret", diagnostic)
+
     def test_poll_login_for_jd_waits_on_service_page_without_pin_and_thor(self) -> None:
         shutdown_calls = []
         cookie = "__jda=visitor; __jdb=session; guid=visitor-guid"
@@ -1326,6 +1434,34 @@ class SidecarCaptureTests(unittest.TestCase):
         self.assertTrue(result["data"]["results"][0]["ok"])
         self.assertEqual(result["data"]["results"][0]["payload"]["subAccount"], "if自营菠萝")
         self.assertEqual(reloaded["loginAccounts"][0]["loginStatus"], "采集成功")
+
+    def test_capture_account_for_pdd_fails_without_adapter_instead_of_using_qn(self) -> None:
+        captured_platforms = []
+
+        def bad_direct_capture(state, _log):
+            captured_platforms.append(state["platform"])
+            raise AssertionError("拼多多账号不应调用千牛采集")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = SidecarApp(
+                data_dir=Path(temp_dir),
+                emit=lambda _event: None,
+                direct_capture_func=bad_direct_capture,
+            )
+            state = app.load_state()
+            state["loginAccounts"][0]["platform"] = "pdd"
+            state["loginAccounts"][0]["displayName"] = "拼多多账号"
+            state["loginAccounts"][0]["cookieProtected"] = "dpapi:v1:encrypted-cookie"
+            app.save_state(state)
+
+            result = app.capture_account({"accountId": "default"})
+            reloaded = app.load_state()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(captured_platforms, [])
+        self.assertFalse(result["data"]["results"][0]["ok"])
+        self.assertIn("平台 pdd 未注册采集适配器", result["data"]["results"][0]["message"])
+        self.assertEqual(reloaded["loginAccounts"][0]["loginStatus"], "采集失败")
 
     def test_capture_all_mixed_accounts_returns_qn_and_jd_results(self) -> None:
         captured_platforms = []

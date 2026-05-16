@@ -14,7 +14,7 @@ from platform_adapters import CaptureAdapter, select_capture_adapter
 
 
 LoginAccount = Dict[str, Any]
-VALID_PLATFORMS = {"qn", "jd"}
+VALID_PLATFORMS = {"qn", "jd", "pdd"}
 DISPLAY_METRIC_KEYS = (
     "consultationCount",
     "receiveCount",
