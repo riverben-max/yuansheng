@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { normalizePlatform } from "./platforms.js";
+import { normalizePlatform } from "../features/platformAccounts/lib/platforms.js";
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 

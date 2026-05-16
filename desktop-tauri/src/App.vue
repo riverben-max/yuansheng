@@ -133,7 +133,7 @@ import { listen } from "@tauri-apps/api/event";
 import { ElMessage } from "element-plus/es/components/message/index.mjs";
 import { ElMessageBox } from "element-plus/es/components/message-box/index.mjs";
 import { runSidecar, subscribeSidecarEvents } from "./lib/sidecar.js";
-import { platformFilterOptions } from "./lib/platforms.js";
+import { platformFilterOptions } from "./features/platformAccounts/lib/platforms.js";
 import {
   buildPlatformSummaries,
   platformSummaryText,
@@ -141,18 +141,18 @@ import {
   isAccountCaptureReady,
   accountResultText,
   uploadFailureText,
-} from "./lib/platformOverview.js";
+} from "./features/platformAccounts/lib/platformOverview.js";
 
-import PlatformCards from "./components/PlatformCards.vue";
-import AccountTable from "./components/AccountTable.vue";
+import PlatformCards from "./features/platformAccounts/components/PlatformCards.vue";
+import AccountTable from "./features/platformAccounts/components/AccountTable.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
-import AccountDialog from "./components/AccountDialog.vue";
+import AccountDialog from "./features/platformAccounts/components/AccountDialog.vue";
 import LogPanel from "./components/LogPanel.vue";
 
 import { useSettings } from "./composables/useSettings.js";
-import { useLoginPolling } from "./composables/useLoginPolling.js";
-import { useCapture } from "./composables/useCapture.js";
-import { useAccounts } from "./composables/useAccounts.js";
+import { useLoginPolling } from "./features/platformAccounts/composables/useLoginPolling.js";
+import { useCapture } from "./features/platformAccounts/composables/useCapture.js";
+import { useAccounts } from "./features/platformAccounts/composables/useAccounts.js";
 
 // ── App-level refs ──
 const activeTab = ref("capture");
