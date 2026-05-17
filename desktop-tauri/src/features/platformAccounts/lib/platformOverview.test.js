@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildPlatformSummaries, platformActionState, platformSummaryText, uploadFailureText } from "./platformOverview.js";
+import { buildPlatformSummaries, isAccountCaptureReady, platformActionState, platformSummaryText, uploadFailureText } from "./platformOverview.js";
 
 const accounts = [
   {
@@ -132,5 +132,26 @@ test("enables platform action when every enabled account for that platform is lo
     reason: "ready",
     buttonText: "采集千牛启用账号",
     hint: "",
+  });
+});
+
+test("does not treat cookie diagnostics without saved cookie as logged in", () => {
+  const account = {
+    id: "qn-diagnostic-only",
+    platform: "qn",
+    enabled: true,
+    loginStatus: "登录窗口已关闭",
+    cookieStatus: "未登录",
+    cookieSummary: "长度=914，PASS_ID=无",
+  };
+  const [qnSummary] = buildPlatformSummaries([account]);
+
+  assert.equal(isAccountCaptureReady(account), false);
+  assert.equal(qnSummary.loggedInCount, 0);
+  assert.deepEqual(platformActionState(qnSummary), {
+    disabled: true,
+    reason: "need-login",
+    buttonText: "采集千牛启用账号",
+    hint: "请先登录全部启用千牛账号",
   });
 });

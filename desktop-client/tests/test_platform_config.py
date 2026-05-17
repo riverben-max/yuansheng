@@ -50,7 +50,9 @@ class PlatformConfigTests(unittest.TestCase):
 
     def test_pdd_success_page_detection_accepts_home_and_chat_overview(self) -> None:
         self.assertTrue(is_pdd_login_success_page("https://mms.pinduoduo.com/home/"))
+        self.assertTrue(is_pdd_login_success_page("https://mms.pinduoduo.com/home"))
         self.assertTrue(is_pdd_login_success_page("https://mms.pinduoduo.com/mms-chat/overview/merchant"))
+        self.assertTrue(is_pdd_login_success_page("https://mms.pinduoduo.com/mms-chat/overview/merchant/"))
         self.assertTrue(is_pdd_relevant_page("https://mms.pinduoduo.com/home/"))
         self.assertFalse(is_pdd_login_success_page("https://mms.pinduoduo.com/"))
         self.assertFalse(is_pdd_login_success_page("https://mms.pinduoduo.com/login/?redirectUrl=https%3A%2F%2Fmms.pinduoduo.com%2Fhome%2F"))

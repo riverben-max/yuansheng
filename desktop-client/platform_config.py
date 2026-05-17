@@ -42,8 +42,8 @@ def is_pdd_login_page(page_url: str) -> bool:
 
 
 def is_pdd_login_success_page(page_url: str) -> bool:
-    return _host(page_url) == "mms.pinduoduo.com" and _path(page_url) in {
-        "/home/",
+    return _host(page_url) == "mms.pinduoduo.com" and _normalized_path(page_url) in {
+        "/home",
         "/mms-chat/overview/merchant",
     }
 
@@ -60,3 +60,8 @@ def _host(page_url: str) -> str:
 def _path(page_url: str) -> str:
     parsed = urlparse(str(page_url or "").strip())
     return parsed.path or "/"
+
+
+def _normalized_path(page_url: str) -> str:
+    path = _path(page_url).rstrip("/")
+    return path or "/"

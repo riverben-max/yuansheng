@@ -72,7 +72,7 @@ function accountCaptureTime(account) {
 export function isAccountCaptureReady(account) {
   const status = String(account?.loginStatus || "").trim();
   const cookieStatus = String(account?.cookieStatus || "").trim();
-  return account?.enabled && (["已登录", "采集成功"].includes(status) || cookieStatus === "已保存" || Boolean(account?.cookieUpdatedAt || account?.cookieSummary));
+  return account?.enabled && (["已登录", "采集成功"].includes(status) || cookieStatus === "已保存" || Boolean(account?.cookieUpdatedAt));
 }
 
 export function accountResultText(account) {
