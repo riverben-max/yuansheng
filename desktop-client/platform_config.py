@@ -6,7 +6,7 @@ QN_LOGIN_URL = "https://loginmyseller.taobao.com/"
 JD_LOGIN_URL = "https://passport.jd.com/new/login.aspx?ReturnUrl=http%3A%2F%2Fkf.jd.com%2F"
 JD_SERVICE_URL = "https://kf.jd.com/"
 JD_DATA_URL = "https://kf.jd.com/#/43"
-PDD_LOGIN_URL = "https://mms.pinduoduo.com/"
+PDD_LOGIN_URL = "https://mms.pinduoduo.com/mms-chat/overview/merchant"
 PDD_HOME_URL = "https://mms.pinduoduo.com/home/"
 PDD_CHAT_OVERVIEW_URL = "https://mms.pinduoduo.com/mms-chat/overview/merchant"
 

@@ -33,7 +33,7 @@ class PlatformConfigTests(unittest.TestCase):
         self.assertEqual(login_start_url_for_platform("unknown"), QN_LOGIN_URL)
 
     def test_pdd_platform_routes_to_merchant_login_entry(self) -> None:
-        self.assertEqual(PDD_LOGIN_URL, "https://mms.pinduoduo.com/")
+        self.assertEqual(PDD_LOGIN_URL, "https://mms.pinduoduo.com/mms-chat/overview/merchant")
         self.assertEqual(PDD_HOME_URL, "https://mms.pinduoduo.com/home/")
         self.assertEqual(PDD_CHAT_OVERVIEW_URL, "https://mms.pinduoduo.com/mms-chat/overview/merchant")
         self.assertEqual(normalize_platform("pdd"), "pdd")
