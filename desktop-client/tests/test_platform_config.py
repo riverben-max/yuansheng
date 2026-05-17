@@ -6,10 +6,15 @@ from platform_config import (
     JD_DATA_URL,
     JD_LOGIN_URL,
     JD_SERVICE_URL,
+    PDD_CHAT_OVERVIEW_URL,
+    PDD_HOME_URL,
     PDD_LOGIN_URL,
     QN_LOGIN_URL,
     is_jd_login_page,
     is_jd_login_success_page,
+    is_pdd_login_page,
+    is_pdd_login_success_page,
+    is_pdd_relevant_page,
     login_start_url_for_platform,
     normalize_platform,
 )
@@ -29,9 +34,26 @@ class PlatformConfigTests(unittest.TestCase):
 
     def test_pdd_platform_routes_to_merchant_login_entry(self) -> None:
         self.assertEqual(PDD_LOGIN_URL, "https://mms.pinduoduo.com/")
+        self.assertEqual(PDD_HOME_URL, "https://mms.pinduoduo.com/home/")
+        self.assertEqual(PDD_CHAT_OVERVIEW_URL, "https://mms.pinduoduo.com/mms-chat/overview/merchant")
         self.assertEqual(normalize_platform("pdd"), "pdd")
         self.assertEqual(login_start_url_for_platform("pdd"), PDD_LOGIN_URL)
         self.assertEqual(normalize_platform("unknown"), "qn")
+
+    def test_pdd_login_page_detection(self) -> None:
+        login_url = "https://mms.pinduoduo.com/login/?redirectUrl=https%3A%2F%2Fmms.pinduoduo.com%2F"
+
+        self.assertTrue(is_pdd_login_page(login_url))
+        self.assertTrue(is_pdd_relevant_page(login_url))
+        self.assertFalse(is_pdd_login_success_page(login_url))
+        self.assertFalse(is_pdd_relevant_page("https://example.com/login/"))
+
+    def test_pdd_success_page_detection_accepts_home_and_chat_overview(self) -> None:
+        self.assertTrue(is_pdd_login_success_page("https://mms.pinduoduo.com/home/"))
+        self.assertTrue(is_pdd_login_success_page("https://mms.pinduoduo.com/mms-chat/overview/merchant"))
+        self.assertTrue(is_pdd_relevant_page("https://mms.pinduoduo.com/home/"))
+        self.assertFalse(is_pdd_login_success_page("https://mms.pinduoduo.com/"))
+        self.assertFalse(is_pdd_login_success_page("https://mms.pinduoduo.com/login/?redirectUrl=https%3A%2F%2Fmms.pinduoduo.com%2Fhome%2F"))
 
     def test_jd_login_page_detection(self) -> None:
         self.assertTrue(is_jd_login_page("https://passport.jd.com/new/login.aspx?ReturnUrl=http%3A%2F%2Fkf.jd.com%2F"))

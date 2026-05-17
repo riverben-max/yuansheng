@@ -31,6 +31,7 @@ from platform_config import (
     PDD_LOGIN_URL,
     QN_LOGIN_URL,
     is_jd_login_success_page,
+    is_pdd_login_success_page,
     login_start_url_for_platform,
     normalize_platform,
 )
@@ -723,7 +724,9 @@ def _browser_state_is_login_ready(
         cookie_name_set = set(_cookie_names(cookie_header))
         return bool(is_jd_login_success_page(page_url) and {"pin", "thor"}.issubset(cookie_name_set))
     if normalize_platform(platform) == "pdd":
-        return False
+        page_url = str(browser_state.get("pageUrl") or browser_state.get("url") or "").strip()
+        flags = _pdd_cookie_flags(_cookie_names(cookie_header))
+        return bool(is_pdd_login_success_page(page_url) and all(flags.values()))
     return bool(browser_state.get("loggedIn") is True and _cookie_summary_is_login_ready(cookie_summary))
 
 
@@ -812,11 +815,26 @@ def _format_jd_login_diagnostics(browser_state: Mapping[str, Any], cookie_header
 def _format_pdd_login_diagnostics(browser_state: Mapping[str, Any], cookie_header: str) -> str:
     page_url = str(browser_state.get("pageUrl") or browser_state.get("url") or "").strip() or "--"
     cookie_names = _cookie_names(cookie_header)
+    flags = _pdd_cookie_flags(cookie_names)
     return (
         f"拼多多登录诊断：url={page_url}，"
         f"cookieCount={len(cookie_names)}，"
-        f"cookieNames={','.join(cookie_names) or '--'}"
+        f"cookieNames={','.join(cookie_names) or '--'}，"
+        f"hasPassId={_yes_no(flags['hasPassId'])}，"
+        f"hasJsessionId={_yes_no(flags['hasJsessionId'])}，"
+        f"hasMmsCookie={_yes_no(flags['hasMmsCookie'])}，"
+        f"hasWindowsShopToken={_yes_no(flags['hasWindowsShopToken'])}"
     )
+
+
+def _pdd_cookie_flags(cookie_names: list[str]) -> Dict[str, bool]:
+    name_set = set(cookie_names)
+    return {
+        "hasPassId": "PASS_ID" in name_set,
+        "hasJsessionId": "JSESSIONID" in name_set,
+        "hasMmsCookie": any(name.startswith("mms_") for name in name_set),
+        "hasWindowsShopToken": any(name.startswith("windows_app_shop_token_") for name in name_set),
+    }
 
 
 def _cookie_names(cookie_header: str) -> list[str]:

@@ -13,6 +13,18 @@ import sidecar_cli
 from sidecar_cli import SidecarApp
 
 
+PDD_VISITOR_COOKIE = (
+    "_a42=visitor-a42; _bee=visitor-bee; _f77=visitor-f77; _nano_fp=visitor-nano; "
+    "api_uid=visitor-api; msfe-pc-cookie-captcha-token=visitor-captcha; "
+    "rckk=visitor-rckk; ru1k=visitor-ru1k; ru2k=visitor-ru2k; webp=1"
+)
+PDD_SUCCESS_COOKIE = (
+    f"{PDD_VISITOR_COOKIE}; JSESSIONID=secret-session; PASS_ID=secret-pass; "
+    "mms_b84d1838=secret-mms; windows_app_shop_token_23=secret-shop-token; "
+    "x-visit-time=secret-visit-time"
+)
+
+
 class SidecarStateTests(unittest.TestCase):
     def test_write_json_line_writes_utf8_bytes(self) -> None:
         class FakeStdout:
@@ -910,16 +922,16 @@ class SidecarAccountTests(unittest.TestCase):
         self.assertNotIn("secret", diagnostic)
         self.assertNotIn("secret-thor", diagnostic)
 
-    def test_poll_login_for_pdd_logs_diagnostics_but_does_not_save_cookie(self) -> None:
+    def test_poll_login_for_pdd_login_page_logs_diagnostics_but_does_not_save_cookie(self) -> None:
         events = []
         shutdown_calls = []
-        cookie = "api_uid=secret-api; pdd_user_id=secret-user; PDDAccessToken=secret-token"
+        cookie = PDD_VISITOR_COOKIE
 
         def fake_inspect(_config, _log):
             return {
                 "cookieHeader": cookie,
                 "loggedIn": True,
-                "pageUrl": "https://mms.pinduoduo.com/home",
+                "pageUrl": "https://mms.pinduoduo.com/login/?redirectUrl=https%3A%2F%2Fmms.pinduoduo.com%2F",
                 "pageTitle": "拼多多商家后台",
                 "currentNick": "拼多多远盛店",
                 "shadowChromePid": 2345,
@@ -965,10 +977,171 @@ class SidecarAccountTests(unittest.TestCase):
         ]
         self.assertEqual(len(diagnostic_logs), 1)
         diagnostic = diagnostic_logs[0]
-        self.assertIn("url=https://mms.pinduoduo.com/home", diagnostic)
-        self.assertIn("cookieCount=3", diagnostic)
-        self.assertIn("cookieNames=PDDAccessToken,api_uid,pdd_user_id", diagnostic)
+        self.assertIn("url=https://mms.pinduoduo.com/login/?redirectUrl=https%3A%2F%2Fmms.pinduoduo.com%2F", diagnostic)
+        self.assertIn("cookieCount=10", diagnostic)
+        self.assertIn("cookieNames=_a42,_bee,_f77,_nano_fp,api_uid,msfe-pc-cookie-captcha-token,rckk,ru1k,ru2k,webp", diagnostic)
+        self.assertIn("hasPassId=否", diagnostic)
+        self.assertIn("hasJsessionId=否", diagnostic)
+        self.assertIn("hasMmsCookie=否", diagnostic)
+        self.assertIn("hasWindowsShopToken=否", diagnostic)
         self.assertNotIn("secret", diagnostic)
+
+    def test_poll_login_for_pdd_home_saves_cookie_and_hides_protected_cookie(self) -> None:
+        shutdown_calls = []
+        protected_cookie = "dpapi:v1:pdd-cookie"
+
+        def fake_inspect(_config, _log):
+            return {
+                "cookieHeader": PDD_SUCCESS_COOKIE,
+                "loggedIn": False,
+                "pageUrl": "https://mms.pinduoduo.com/home/",
+                "pageTitle": "首页",
+                "currentNick": "拼多多远盛店",
+                "shadowChromePid": 2345,
+                "activeChromePort": 45678,
+            }
+
+        def fake_shutdown(config, _log):
+            shutdown_calls.append(
+                (
+                    str(config.get("shadowChromeProfileDir") or ""),
+                    int(config.get("activeChromePort") or config.get("chromePort") or 0),
+                )
+            )
+            return 1
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            app = SidecarApp(data_dir=data_dir, emit=lambda _event: None)
+            state = app.load_state()
+            state["loginAccounts"][0]["platform"] = "pdd"
+            state["loginAccounts"][0]["profileDir"] = str(data_dir / "profiles" / "pdd")
+            state["loginAccounts"][0]["chromePort"] = 0
+            state["loginAccounts"][0]["activeChromePort"] = 45678
+            app.save_state(state)
+
+            original_inspect = sidecar_cli.inspect_existing_shadow_browser_state
+            original_protect = sidecar_cli.protect_text
+            original_shutdown = sidecar_cli.shutdown_shadow_browser
+            sidecar_cli.inspect_existing_shadow_browser_state = fake_inspect
+            sidecar_cli.protect_text = lambda value: protected_cookie
+            sidecar_cli.shutdown_shadow_browser = fake_shutdown
+            try:
+                result = app.poll_login({"accountId": "default"})
+                reloaded = app.load_state()
+            finally:
+                sidecar_cli.inspect_existing_shadow_browser_state = original_inspect
+                sidecar_cli.protect_text = original_protect
+                sidecar_cli.shutdown_shadow_browser = original_shutdown
+
+        account = reloaded["loginAccounts"][0]
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["data"]["loggedIn"])
+        self.assertEqual(result["data"]["status"], "已登录")
+        self.assertEqual(account["cookieProtected"], protected_cookie)
+        self.assertEqual(account["loginStatus"], "已登录")
+        self.assertEqual(account["lastKnownLoginAccount"], "拼多多远盛店")
+        self.assertTrue(account["cookieUpdatedAt"])
+        self.assertEqual(shutdown_calls, [(str(data_dir / "profiles" / "pdd"), 45678)])
+        self.assertNotIn("activeChromePort", account)
+        public_account = result["data"]["state"]["loginAccounts"][0]
+        self.assertNotIn("cookieProtected", public_account)
+        self.assertEqual(public_account["cookieStatus"], "已保存")
+
+    def test_poll_login_for_pdd_chat_overview_saves_cookie(self) -> None:
+        protected_cookie = "dpapi:v1:pdd-cookie"
+
+        def fake_inspect(_config, _log):
+            return {
+                "cookieHeader": PDD_SUCCESS_COOKIE,
+                "loggedIn": False,
+                "pageUrl": "https://mms.pinduoduo.com/mms-chat/overview/merchant",
+                "pageTitle": "拼多多商家后台",
+                "currentNick": "拼多多远盛店",
+                "shadowChromePid": 2345,
+                "activeChromePort": 45678,
+            }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = SidecarApp(data_dir=Path(temp_dir), emit=lambda _event: None)
+            state = app.load_state()
+            state["loginAccounts"][0]["platform"] = "pdd"
+            state["loginAccounts"][0]["activeChromePort"] = 45678
+            app.save_state(state)
+
+            original_inspect = sidecar_cli.inspect_existing_shadow_browser_state
+            original_protect = sidecar_cli.protect_text
+            original_shutdown = sidecar_cli.shutdown_shadow_browser
+            sidecar_cli.inspect_existing_shadow_browser_state = fake_inspect
+            sidecar_cli.protect_text = lambda value: protected_cookie
+            sidecar_cli.shutdown_shadow_browser = lambda _config, _log: 1
+            try:
+                result = app.poll_login({"accountId": "default"})
+                reloaded = app.load_state()
+            finally:
+                sidecar_cli.inspect_existing_shadow_browser_state = original_inspect
+                sidecar_cli.protect_text = original_protect
+                sidecar_cli.shutdown_shadow_browser = original_shutdown
+
+        self.assertTrue(result["data"]["loggedIn"])
+        self.assertEqual(reloaded["loginAccounts"][0]["cookieProtected"], protected_cookie)
+
+    def test_poll_login_for_pdd_missing_required_cookie_keeps_waiting(self) -> None:
+        required_parts = {
+            "JSESSIONID": "JSESSIONID=secret-session",
+            "PASS_ID": "PASS_ID=secret-pass",
+            "mms": "mms_b84d1838=secret-mms",
+            "shop_token": "windows_app_shop_token_23=secret-shop-token",
+        }
+
+        for missing_key in required_parts:
+            with self.subTest(missing_key=missing_key):
+                cookie = "; ".join(
+                    [PDD_VISITOR_COOKIE]
+                    + [value for key, value in required_parts.items() if key != missing_key]
+                    + ["x-visit-time=secret-visit-time"]
+                )
+
+                def fake_inspect(_config, _log):
+                    return {
+                        "cookieHeader": cookie,
+                        "loggedIn": True,
+                        "pageUrl": "https://mms.pinduoduo.com/home/",
+                        "pageTitle": "首页",
+                        "currentNick": "拼多多远盛店",
+                        "shadowChromePid": 2345,
+                        "activeChromePort": 45678,
+                    }
+
+                def fail_protect(_value):
+                    raise AssertionError("缺少拼多多关键 Cookie 时不应保存")
+
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    app = SidecarApp(data_dir=Path(temp_dir), emit=lambda _event: None)
+                    state = app.load_state()
+                    state["loginAccounts"][0]["platform"] = "pdd"
+                    state["loginAccounts"][0]["activeChromePort"] = 45678
+                    app.save_state(state)
+
+                    original_inspect = sidecar_cli.inspect_existing_shadow_browser_state
+                    original_protect = sidecar_cli.protect_text
+                    original_shutdown = sidecar_cli.shutdown_shadow_browser
+                    sidecar_cli.inspect_existing_shadow_browser_state = fake_inspect
+                    sidecar_cli.protect_text = fail_protect
+                    sidecar_cli.shutdown_shadow_browser = lambda _config, _log: (_ for _ in ()).throw(
+                        AssertionError("缺少拼多多关键 Cookie 时不应关闭窗口")
+                    )
+                    try:
+                        result = app.poll_login({"accountId": "default"})
+                        reloaded = app.load_state()
+                    finally:
+                        sidecar_cli.inspect_existing_shadow_browser_state = original_inspect
+                        sidecar_cli.protect_text = original_protect
+                        sidecar_cli.shutdown_shadow_browser = original_shutdown
+
+                self.assertFalse(result["data"]["loggedIn"])
+                self.assertEqual(result["data"]["status"], "等待扫码")
+                self.assertNotIn("cookieProtected", reloaded["loginAccounts"][0])
 
     def test_poll_login_for_jd_waits_on_service_page_without_pin_and_thor(self) -> None:
         shutdown_calls = []
