@@ -12,10 +12,15 @@ class PlatformAdapterNotRegisteredError(RuntimeError):
     pass
 
 
-def default_capture_adapters(qn_capture_func: CaptureAdapter, jd_capture_func: CaptureAdapter) -> dict[str, CaptureAdapter]:
+def default_capture_adapters(
+    qn_capture_func: CaptureAdapter,
+    jd_capture_func: CaptureAdapter,
+    pdd_capture_func: CaptureAdapter,
+) -> dict[str, CaptureAdapter]:
     return {
         "qn": qn_capture_func,
         "jd": jd_capture_func,
+        "pdd": pdd_capture_func,
     }
 
 

@@ -49,7 +49,7 @@ test("platformTagType returns configured tag type", () => {
 test("platformSupportsCapture checks capture support flag", () => {
   assert.equal(platformSupportsCapture("qn"), true);
   assert.equal(platformSupportsCapture("jd"), true);
-  assert.equal(platformSupportsCapture("pdd"), false);
+  assert.equal(platformSupportsCapture("pdd"), true);
   // unknown platforms normalize to qn, inheriting its capture support
   assert.equal(platformSupportsCapture("bad"), true);
 });

@@ -25,6 +25,7 @@ from direct_api_capture import (
 from external_capture import LoginRequiredError, capture_with_external_chrome, inspect_existing_shadow_browser_state
 from jd_workload_capture import capture_jd_workload
 from login_accounts import add_login_account, build_account_state, capture_enabled_accounts, ensure_login_accounts
+from pdd_workload_capture import capture_pdd_workload
 from platform_adapters import default_capture_adapters
 from platform_config import (
     JD_LOGIN_URL,
@@ -119,6 +120,7 @@ class SidecarApp:
         capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]] | None = None,
         direct_capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]] | None = None,
         jd_capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]] | None = None,
+        pdd_capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]] | None = None,
         upload_func: Callable[[MutableMapping[str, Any], Mapping[str, Any], str, str], tuple[str, Mapping[str, Any] | None]] | None = None,
     ):
         self.data_dir = data_dir or app_data_dir()
@@ -127,6 +129,7 @@ class SidecarApp:
         self.capture_func = capture_func or capture_with_external_chrome
         self.direct_capture_func = direct_capture_func or capture_with_direct_api
         self.jd_capture_func = jd_capture_func or capture_jd_workload
+        self.pdd_capture_func = pdd_capture_func or capture_pdd_workload
         self.upload_func = upload_func or upload_payload_with_state
 
     def load_state(self) -> Dict[str, Any]:
@@ -506,7 +509,7 @@ class SidecarApp:
                     capture_func=self.direct_capture_func,
                     upload_func=self.upload_func,
                     log=self.log,
-                    capture_adapters=default_capture_adapters(self.direct_capture_func, self.jd_capture_func),
+                    capture_adapters=default_capture_adapters(self.direct_capture_func, self.jd_capture_func, self.pdd_capture_func),
                 )
                 state["lastRunAt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self._trim_upload_history(state)
@@ -540,7 +543,7 @@ class SidecarApp:
             capture_func=self.direct_capture_func,
             upload_func=self.upload_func,
             log=self.log,
-            capture_adapters=default_capture_adapters(self.direct_capture_func, self.jd_capture_func),
+            capture_adapters=default_capture_adapters(self.direct_capture_func, self.jd_capture_func, self.pdd_capture_func),
         )
         self.save_state(state)
         self.emit(event("status", status="待命", danger=False))

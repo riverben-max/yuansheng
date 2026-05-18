@@ -13,16 +13,20 @@ def jd_capture(_state, _log):
     return {"platform": "jd"}
 
 
+def pdd_capture(_state, _log):
+    return {"platform": "pdd"}
+
+
 class PlatformAdapterTests(unittest.TestCase):
-    def test_default_capture_adapters_registers_qn_and_jd(self) -> None:
-        adapters = default_capture_adapters(qn_capture, jd_capture)
+    def test_default_capture_adapters_registers_qn_jd_and_pdd(self) -> None:
+        adapters = default_capture_adapters(qn_capture, jd_capture, pdd_capture)
 
         self.assertIs(select_capture_adapter("qn", adapters), qn_capture)
         self.assertIs(select_capture_adapter("jd", adapters), jd_capture)
-        self.assertNotIn("pdd", adapters)
+        self.assertIs(select_capture_adapter("pdd", adapters), pdd_capture)
 
     def test_unknown_platform_normalizes_to_qn(self) -> None:
-        adapters = default_capture_adapters(qn_capture, jd_capture)
+        adapters = default_capture_adapters(qn_capture, jd_capture, pdd_capture)
 
         self.assertIs(select_capture_adapter("bad", adapters), qn_capture)
 

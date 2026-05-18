@@ -1608,22 +1608,38 @@ class SidecarCaptureTests(unittest.TestCase):
         self.assertEqual(result["data"]["results"][0]["payload"]["subAccount"], "if自营菠萝")
         self.assertEqual(reloaded["loginAccounts"][0]["loginStatus"], "采集成功")
 
-    def test_capture_account_for_pdd_fails_without_adapter_instead_of_using_qn(self) -> None:
+    def test_capture_account_for_pdd_uses_pdd_adapter(self) -> None:
         captured_platforms = []
 
         def bad_direct_capture(state, _log):
             captured_platforms.append(state["platform"])
             raise AssertionError("拼多多账号不应调用千牛采集")
 
+        def fake_pdd_capture(state, _log):
+            captured_platforms.append(state["platform"])
+            return {
+                "loginAccount": state["shopName"],
+                "recordDate": "2026-05-17",
+                "subAccount": "屿你服饰星星",
+                "consultationCount": 7,
+                "rawMetrics": {"accountIdentity": "屿你服饰星星"},
+            }
+
+        def fake_upload(_state, _payload, _signature, _reason):
+            return "服务端上传成功：上传成功。", {"uploadedAt": "2026-05-18 09:00:00"}
+
         with tempfile.TemporaryDirectory() as temp_dir:
             app = SidecarApp(
                 data_dir=Path(temp_dir),
                 emit=lambda _event: None,
                 direct_capture_func=bad_direct_capture,
+                pdd_capture_func=fake_pdd_capture,
+                upload_func=fake_upload,
             )
             state = app.load_state()
             state["loginAccounts"][0]["platform"] = "pdd"
             state["loginAccounts"][0]["displayName"] = "拼多多账号"
+            state["loginAccounts"][0]["shopName"] = "拼多多远盛店"
             state["loginAccounts"][0]["cookieProtected"] = "dpapi:v1:encrypted-cookie"
             app.save_state(state)
 
@@ -1631,10 +1647,11 @@ class SidecarCaptureTests(unittest.TestCase):
             reloaded = app.load_state()
 
         self.assertTrue(result["ok"])
-        self.assertEqual(captured_platforms, [])
-        self.assertFalse(result["data"]["results"][0]["ok"])
-        self.assertIn("平台 pdd 未注册采集适配器", result["data"]["results"][0]["message"])
-        self.assertEqual(reloaded["loginAccounts"][0]["loginStatus"], "采集失败")
+        self.assertEqual(captured_platforms, ["pdd"])
+        self.assertTrue(result["data"]["results"][0]["ok"])
+        self.assertEqual(result["data"]["results"][0]["payload"]["subAccount"], "屿你服饰星星")
+        self.assertEqual(reloaded["loginAccounts"][0]["loginStatus"], "采集成功")
+        self.assertEqual(reloaded["loginAccounts"][0]["lastKnownLoginAccount"], "屿你服饰星星")
 
     def test_capture_all_mixed_accounts_returns_qn_and_jd_results(self) -> None:
         captured_platforms = []

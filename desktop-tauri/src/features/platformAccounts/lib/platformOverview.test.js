@@ -58,7 +58,7 @@ test("builds fixed qn, jd and pdd platform summaries and treats missing platform
   assert.equal(summaries[2].accountCount, 1);
   assert.equal(summaries[2].enabledCount, 1);
   assert.equal(summaries[2].loggedInCount, 1);
-  assert.equal(summaries[2].supportsCapture, false);
+  assert.equal(summaries[2].supportsCapture, true);
 });
 
 test("uses the latest capture result inside each platform", () => {
@@ -114,10 +114,10 @@ test("blocks a platform until its enabled accounts are logged in and enables rea
     hint: "",
   });
   assert.deepEqual(platformActionState(pddSummary), {
-    disabled: true,
-    reason: "unsupported",
+    disabled: false,
+    reason: "ready",
     buttonText: "采集拼多多启用账号",
-    hint: "拼多多采集暂未接入",
+    hint: "",
   });
 });
 

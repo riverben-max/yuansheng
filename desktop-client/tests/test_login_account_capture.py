@@ -630,6 +630,49 @@ class BatchCaptureTests(unittest.TestCase):
         self.assertEqual(accounts[0]["loginStatus"], "采集失败")
         self.assertIn("平台 pdd 未注册采集适配器", results[0]["message"])
 
+    def test_pdd_account_uses_registered_adapter(self) -> None:
+        state = {"serverUrl": "http://example.com", "uploadHistory": {}}
+        accounts = [
+            {
+                "id": "pdd-account",
+                "platform": "pdd",
+                "displayName": "拼多多账号",
+                "enabled": True,
+                "cookieProtected": "dpapi:v1:pdd-cookie",
+                "shopName": "拼多多远盛店",
+            }
+        ]
+        captured_platforms = []
+
+        def bad_qn_capture(config, _log):
+            captured_platforms.append(config["platform"])
+            return {"loginAccount": "远盛电商", "recordDate": "2026-05-17", "subAccount": "误采集"}
+
+        def fake_pdd_capture(config, _log):
+            captured_platforms.append(config["platform"])
+            return {
+                "loginAccount": config["shopName"],
+                "recordDate": "2026-05-17",
+                "subAccount": "屿你服饰星星",
+                "consultationCount": 7,
+                "rawMetrics": {"accountIdentity": "屿你服饰星星"},
+            }
+
+        results = capture_enabled_accounts(
+            state,
+            accounts,
+            reason="手动采集",
+            capture_func=bad_qn_capture,
+            upload_func=lambda _state, _payload, _signature, _reason: ("服务端上传成功：上传成功。", {"uploadedAt": "2026-05-18 09:00:00"}),
+            log=lambda _message: None,
+            capture_adapters={"qn": bad_qn_capture, "pdd": fake_pdd_capture},
+        )
+
+        self.assertEqual(captured_platforms, ["pdd"])
+        self.assertTrue(results[0]["ok"])
+        self.assertEqual(accounts[0]["loginStatus"], "采集成功")
+        self.assertEqual(accounts[0]["lastKnownLoginAccount"], "屿你服饰星星")
+
     def test_missing_platform_still_uses_qn_capture(self) -> None:
         state = {"serverUrl": "http://example.com", "uploadHistory": {}}
         accounts = [
