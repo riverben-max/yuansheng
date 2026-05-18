@@ -45,6 +45,33 @@ class ShadowBrowserTests(unittest.TestCase):
 
         self.assertIn("--remote-debugging-port=0", command)
 
+    def test_resolve_chrome_path_prefers_edge_for_edge_browser_engine(self) -> None:
+        def fake_registry(_root, key_path):
+            if "msedge.exe" in key_path:
+                return r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"
+            if "chrome.exe" in key_path:
+                return r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+            return ""
+
+        def fake_exists(path):
+            return str(path) in {
+                r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            }
+
+        with (
+            patch("shadow_browser._read_registry_default", side_effect=fake_registry),
+            patch("pathlib.Path.exists", fake_exists),
+        ):
+            self.assertEqual(
+                shadow_browser.resolve_chrome_path({"browserEngine": "edge"}),
+                r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            )
+            self.assertEqual(
+                shadow_browser.resolve_chrome_path({}),
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            )
+
     def test_read_devtools_active_port_parses_runtime_port_and_browser_path(self) -> None:
         with self.subTest("valid file"):
             import tempfile

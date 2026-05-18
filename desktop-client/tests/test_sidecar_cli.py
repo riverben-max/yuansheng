@@ -391,6 +391,9 @@ class SidecarAccountTests(unittest.TestCase):
         self.assertEqual(opened_configs[0]["shadowChromeStartupUrl"], sidecar_cli.QN_LOGIN_URL)
         self.assertEqual(opened_configs[1]["shadowChromeStartupUrl"], sidecar_cli.JD_LOGIN_URL)
         self.assertEqual(opened_configs[2]["shadowChromeStartupUrl"], sidecar_cli.PDD_LOGIN_URL)
+        self.assertNotIn("browserEngine", opened_configs[0])
+        self.assertNotIn("browserEngine", opened_configs[1])
+        self.assertEqual(opened_configs[2]["browserEngine"], "edge")
 
     def test_concurrent_start_login_reuses_single_login_session(self) -> None:
         opened_configs = []
