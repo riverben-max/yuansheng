@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import argparse
 from contextlib import contextmanager
 import json
@@ -25,10 +25,14 @@ from direct_api_capture import (
 from external_capture import LoginRequiredError, capture_with_external_chrome, inspect_existing_shadow_browser_state
 from jd_workload_capture import capture_jd_workload
 from login_accounts import add_login_account, build_account_state, capture_enabled_accounts, ensure_login_accounts
+from pdd_workload_capture import capture_pdd_workload
+from platform_adapters import default_capture_adapters
 from platform_config import (
     JD_LOGIN_URL,
+    PDD_LOGIN_URL,
     QN_LOGIN_URL,
     is_jd_login_success_page,
+    is_pdd_login_success_page,
     login_start_url_for_platform,
     normalize_platform,
 )
@@ -116,6 +120,7 @@ class SidecarApp:
         capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]] | None = None,
         direct_capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]] | None = None,
         jd_capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]] | None = None,
+        pdd_capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]] | None = None,
         upload_func: Callable[[MutableMapping[str, Any], Mapping[str, Any], str, str], tuple[str, Mapping[str, Any] | None]] | None = None,
     ):
         self.data_dir = data_dir or app_data_dir()
@@ -124,6 +129,7 @@ class SidecarApp:
         self.capture_func = capture_func or capture_with_external_chrome
         self.direct_capture_func = direct_capture_func or capture_with_direct_api
         self.jd_capture_func = jd_capture_func or capture_jd_workload
+        self.pdd_capture_func = pdd_capture_func or capture_pdd_workload
         self.upload_func = upload_func or upload_payload_with_state
 
     def load_state(self) -> Dict[str, Any]:
@@ -161,20 +167,17 @@ class SidecarApp:
     def save_state(self, state: Mapping[str, Any]) -> None:
         try:
             self.data_dir.mkdir(parents=True, exist_ok=True)
+            state_json = json.dumps(dict(state), ensure_ascii=False, indent=2)
+            state_size_mb = len(state_json.encode("utf-8")) / (1024 * 1024)
+            if state_size_mb > 5:
+                self.emit(event("log", time=datetime.now().strftime("%H:%M:%S"),
+                                 message=f"配置文件较大（{state_size_mb:.1f}MB），建议清理历史数据。"))
             tmp_path = self.state_path.with_suffix(".json.tmp")
-            tmp_path.write_text(
-                json.dumps(dict(state), ensure_ascii=False, indent=2),
-                encoding="utf-8",
-                newline="\n",
-            )
+            tmp_path.write_text(state_json, encoding="utf-8", newline="\n")
             tmp_path.replace(self.state_path)
             backup = self.state_path.with_suffix(".json.bak")
             try:
-                backup.write_text(
-                    json.dumps(dict(state), ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                    newline="\n",
-                )
+                backup.write_text(state_json, encoding="utf-8", newline="\n")
             except Exception:
                 pass
         except Exception as exc:
@@ -227,6 +230,7 @@ class SidecarApp:
             login_hint=str(payload.get("loginHint") or ""),
             platform=str(payload.get("platform") or "qn"),
             shop_name=str(payload.get("shopName") or ""),
+            shop_id=int(payload.get("shopId") or 0),
         )
         if "enabled" in payload:
             account["enabled"] = bool(payload.get("enabled"))
@@ -242,8 +246,10 @@ class SidecarApp:
         for key in ("displayName", "loginHint", "profileDir", "shopName"):
             if key in payload:
                 account[key] = str(payload.get(key) or "").strip()
+        if "shopId" in payload:
+            account["shopId"] = int(payload.get("shopId") or 0)
         if "platform" in payload:
-            account["platform"] = _normalize_platform(payload.get("platform"))
+            account["platform"] = normalize_platform(payload.get("platform"))
         if "chromePort" in payload:
             account["chromePort"] = int(payload.get("chromePort") or 9222)
         if "enabled" in payload:
@@ -387,8 +393,11 @@ class SidecarApp:
         if active_port > 0:
             account["activeChromePort"] = active_port
         account["cookieSummary"] = format_cookie_diagnostics(cookie_header) if cookie_header else ""
-        if normalize_platform(account.get("platform")) == "jd":
+        normalized_platform = normalize_platform(account.get("platform"))
+        if normalized_platform == "jd":
             self.log(_format_jd_login_diagnostics(browser_state, cookie_header))
+        elif normalized_platform == "pdd":
+            self.log(_format_pdd_login_diagnostics(browser_state, cookie_header))
 
         if not _browser_state_is_login_ready(browser_state, cookie_summary, account.get("platform"), cookie_header):
             account["loginStatus"] = "等待扫码"
@@ -500,7 +509,7 @@ class SidecarApp:
                     capture_func=self.direct_capture_func,
                     upload_func=self.upload_func,
                     log=self.log,
-                    jd_capture_func=self.jd_capture_func,
+                    capture_adapters=default_capture_adapters(self.direct_capture_func, self.jd_capture_func, self.pdd_capture_func),
                 )
                 state["lastRunAt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self._trim_upload_history(state)
@@ -534,7 +543,7 @@ class SidecarApp:
             capture_func=self.direct_capture_func,
             upload_func=self.upload_func,
             log=self.log,
-            jd_capture_func=self.jd_capture_func,
+            capture_adapters=default_capture_adapters(self.direct_capture_func, self.jd_capture_func, self.pdd_capture_func),
         )
         self.save_state(state)
         self.emit(event("status", status="待命", danger=False))
@@ -651,6 +660,15 @@ class SidecarApp:
         history = state.get("uploadHistory")
         if not isinstance(history, dict):
             return
+        cutoff = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+        stale_keys = []
+        for key, entry in history.items():
+            if isinstance(entry, dict):
+                record_date = str(entry.get("recordDate") or "")
+                if record_date and record_date < cutoff:
+                    stale_keys.append(key)
+        for key in stale_keys:
+            del history[key]
         if len(history) > 500:
             for key in list(history.keys())[:len(history) - 500]:
                 del history[key]
@@ -717,6 +735,10 @@ def _browser_state_is_login_ready(
         page_url = str(browser_state.get("pageUrl") or browser_state.get("url") or "").strip()
         cookie_name_set = set(_cookie_names(cookie_header))
         return bool(is_jd_login_success_page(page_url) and {"pin", "thor"}.issubset(cookie_name_set))
+    if normalize_platform(platform) == "pdd":
+        page_url = str(browser_state.get("pageUrl") or browser_state.get("url") or "").strip()
+        flags = _pdd_cookie_flags(_cookie_names(cookie_header))
+        return bool(is_pdd_login_success_page(page_url) and all(flags.values()))
     return bool(browser_state.get("loggedIn") is True and _cookie_summary_is_login_ready(cookie_summary))
 
 
@@ -784,10 +806,6 @@ def _account_cookie_status(account: Mapping[str, Any]) -> str:
     return "未登录"
 
 
-def _normalize_platform(raw: Any) -> str:
-    return normalize_platform(raw)
-
-
 def _format_jd_login_diagnostics(browser_state: Mapping[str, Any], cookie_header: str) -> str:
     page_url = str(browser_state.get("pageUrl") or browser_state.get("url") or "").strip() or "--"
     cookie_names = _cookie_names(cookie_header)
@@ -800,6 +818,31 @@ def _format_jd_login_diagnostics(browser_state: Mapping[str, Any], cookie_header
         f"hasPtPin={_yes_no('pt_pin' in name_set)}，"
         f"hasThor={_yes_no('thor' in name_set)}"
     )
+
+
+def _format_pdd_login_diagnostics(browser_state: Mapping[str, Any], cookie_header: str) -> str:
+    page_url = str(browser_state.get("pageUrl") or browser_state.get("url") or "").strip() or "--"
+    cookie_names = _cookie_names(cookie_header)
+    flags = _pdd_cookie_flags(cookie_names)
+    return (
+        f"拼多多登录诊断：url={page_url}，"
+        f"cookieCount={len(cookie_names)}，"
+        f"cookieNames={','.join(cookie_names) or '--'}，"
+        f"hasPassId={_yes_no(flags['hasPassId'])}，"
+        f"hasJsessionId={_yes_no(flags['hasJsessionId'])}，"
+        f"hasMmsCookie={_yes_no(flags['hasMmsCookie'])}，"
+        f"hasWindowsShopToken={_yes_no(flags['hasWindowsShopToken'])}"
+    )
+
+
+def _pdd_cookie_flags(cookie_names: list[str]) -> Dict[str, bool]:
+    name_set = set(cookie_names)
+    return {
+        "hasPassId": "PASS_ID" in name_set,
+        "hasJsessionId": "JSESSIONID" in name_set,
+        "hasMmsCookie": any(name.startswith("mms_") for name in name_set),
+        "hasWindowsShopToken": any(name.startswith("windows_app_shop_token_") for name in name_set),
+    }
 
 
 def _cookie_names(cookie_header: str) -> list[str]:

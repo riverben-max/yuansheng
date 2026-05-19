@@ -20,7 +20,7 @@ public class BizSpiderData extends BaseEntity {
     @JsonFormat(pattern = "yyyy-MM-dd")
     private Date recordDate;
 
-    /** 千牛客服子账号（无子账号时填主账号） */
+    /** 客服子账号（无子账号时填主账号） */
     private String subAccount;
 
     /** 咨询人数 */

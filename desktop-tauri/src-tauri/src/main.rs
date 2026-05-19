@@ -59,14 +59,31 @@ fn sidecar_command_blocking(app: AppHandle, command: String, payload: Option<Val
             Ok(Some(status)) => break status,
             Ok(None) => {
                 if std::time::Instant::now() >= deadline {
-                    // Kill the entire process tree (sidecar + Chrome subprocess).
+                    // Try graceful shutdown first (without /F), then force kill.
                     let _ = Command::new("taskkill")
-                        .args(["/F", "/T", "/PID", &pid.to_string()])
+                        .args(["/T", "/PID", &pid.to_string()])
                         .stdout(Stdio::null())
                         .stderr(Stdio::null())
                         .spawn();
-                    let _ = process.kill();
-                    let _ = process.wait();
+                    // Wait up to 3 seconds for graceful exit.
+                    let grace_deadline = std::time::Instant::now() + Duration::from_secs(3);
+                    let mut exited = false;
+                    while std::time::Instant::now() < grace_deadline {
+                        if process.try_wait().map(|s| s.is_some()).unwrap_or(false) {
+                            exited = true;
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(200));
+                    }
+                    if !exited {
+                        let _ = Command::new("taskkill")
+                            .args(["/F", "/T", "/PID", &pid.to_string()])
+                            .stdout(Stdio::null())
+                            .stderr(Stdio::null())
+                            .spawn();
+                        let _ = process.kill();
+                        let _ = process.wait();
+                    }
                     return Err(format!(
                         "sidecar 执行超时（{timeout_secs} 秒，PID={pid}），已终止。"
                     ));
@@ -273,6 +290,7 @@ fn main() {
                         }
                         "quit" => {
                             let _ = app.emit("tray-quit", ());
+                            app.exit(0);
                         }
                         _ => {}
                     }

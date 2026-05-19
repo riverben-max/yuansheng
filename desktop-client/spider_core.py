@@ -434,3 +434,11 @@ def summarize_network_logs(snapshot: PageSnapshot, expected_request_keys: Option
     visible = relevant[:4]
     suffix = "" if len(relevant) <= 4 else f" 等共 {len(relevant)} 条"
     return f"当前轮已截获 {len(relevant)} 条目标响应：{' | '.join(visible)}{suffix}"
+
+
+def positive_int(raw: Any) -> int:
+    try:
+        value = int(raw)
+    except Exception:
+        return 0
+    return value if value > 0 else 0

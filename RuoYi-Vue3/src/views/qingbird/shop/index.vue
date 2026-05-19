@@ -302,6 +302,7 @@ import {
   ChatDotRound, User, Edit
 } from '@element-plus/icons-vue'
 import request from '@/utils/request'
+import { platformLabel, platformColor, platformTagType, PLATFORM_TYPE } from '@/utils/platform'
 
 const loading = ref(false)
 const tableData = ref([])
@@ -347,8 +348,8 @@ const fmtNum = (v) => {
   return Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
-const platLabel = (p) => p === 1 ? '淘宝' : p === 2 ? '京东' : '拼多多'
-const platColor = (p) => p === 1 ? '#FF6900' : p === 2 ? '#E2231A' : '#C0392B'
+const platLabel = platformLabel
+const platColor = platformColor
 
 const handleSelectionChange = (rows) => { selectedRows.value = rows }
 

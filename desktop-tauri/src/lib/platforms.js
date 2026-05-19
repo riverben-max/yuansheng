@@ -1,6 +1,7 @@
 export const PLATFORMS = [
   { value: "qn", label: "千牛", tagType: "success", supportsCapture: true },
   { value: "jd", label: "京东", tagType: "info", supportsCapture: true },
+  { value: "pdd", label: "拼多多", tagType: "warning", supportsCapture: true },
   // 预留: { value: "dy", label: "抖音", tagType: "", supportsCapture: false },
 ];
 
