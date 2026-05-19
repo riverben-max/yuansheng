@@ -168,6 +168,7 @@ class SidecarAccountTests(unittest.TestCase):
                         "loginHint": "pdd-user",
                         "platform": "pdd",
                         "shopName": "拼多多远盛店",
+                        "shopId": 42,
                     }
                 )
                 account_id = created["data"]["id"]
@@ -176,6 +177,7 @@ class SidecarAccountTests(unittest.TestCase):
                         "id": account_id,
                         "platform": "pdd",
                         "shopName": "拼多多远盛旗舰店",
+                        "shopId": 43,
                     }
                 )
                 public_state = app.get_state({})["data"]
@@ -185,8 +187,11 @@ class SidecarAccountTests(unittest.TestCase):
         public_account = next(item for item in public_state["loginAccounts"] if item["id"] == account_id)
         self.assertEqual(created["data"]["platform"], "pdd")
         self.assertEqual(updated["data"]["platform"], "pdd")
+        self.assertEqual(created["data"]["shopId"], 42)
+        self.assertEqual(updated["data"]["shopId"], 43)
         self.assertEqual(public_account["platform"], "pdd")
         self.assertEqual(public_account["shopName"], "拼多多远盛旗舰店")
+        self.assertEqual(public_account["shopId"], 43)
 
     def test_start_login_requires_selected_account(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1606,7 +1611,7 @@ class SidecarCaptureTests(unittest.TestCase):
         self.assertTrue(result["data"]["batch"])
         self.assertTrue(result["data"]["results"][0]["ok"])
         self.assertEqual(result["data"]["results"][0]["payload"]["subAccount"], "if自营菠萝")
-        self.assertEqual(reloaded["loginAccounts"][0]["loginStatus"], "采集成功")
+        self.assertEqual(reloaded["loginAccounts"][0]["loginStatus"], "采集成功+已上传")
 
     def test_capture_account_for_pdd_uses_pdd_adapter(self) -> None:
         captured_platforms = []
@@ -1650,7 +1655,7 @@ class SidecarCaptureTests(unittest.TestCase):
         self.assertEqual(captured_platforms, ["pdd"])
         self.assertTrue(result["data"]["results"][0]["ok"])
         self.assertEqual(result["data"]["results"][0]["payload"]["subAccount"], "屿你服饰星星")
-        self.assertEqual(reloaded["loginAccounts"][0]["loginStatus"], "采集成功")
+        self.assertEqual(reloaded["loginAccounts"][0]["loginStatus"], "采集成功+已上传")
         self.assertEqual(reloaded["loginAccounts"][0]["lastKnownLoginAccount"], "屿你服饰星星")
 
     def test_capture_all_mixed_accounts_returns_qn_and_jd_results(self) -> None:

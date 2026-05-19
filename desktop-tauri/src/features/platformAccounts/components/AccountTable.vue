@@ -71,7 +71,7 @@
         <template #default="{ row }">
           <div class="row-actions">
             <el-button size="small" :disabled="loginBusy" @click="$emit('login', row)">登录</el-button>
-            <el-button size="small" type="success" plain @click="$emit('capture', row)">采集</el-button>
+            <el-button size="small" type="success" plain :disabled="captureBusy" @click="$emit('capture', row)">采集</el-button>
             <el-button size="small" type="danger" plain @click="$emit('delete', row)">删除</el-button>
           </div>
         </template>

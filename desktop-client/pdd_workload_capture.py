@@ -140,6 +140,7 @@ def parse_pdd_workload_payload(raw_data: Any, request_params: Mapping[str, Any],
         "conversionRate": _rate(row.get("inquiry_group_rate")),
         "firstReplyTime": None,
         "avgReplyTime": _metric("avgReplyTime", row.get("avg_reply_time")),
+        "salesAmount": _fen_to_yuan(row.get("cs_sales_amount")),
         "wwReplyRate": _rate(row.get("reply_rate_3_min")),
         "satisfaction": None,
         "rawMetrics": raw_metrics,
@@ -149,15 +150,23 @@ def parse_pdd_workload_payload(raw_data: Any, request_params: Mapping[str, Any],
 def _find_pdd_target_row(rows: list, state: Mapping[str, Any]) -> Mapping[str, Any]:
     if len(rows) == 1:
         return rows[0]
-    target = str(state.get("lastKnownLoginAccount") or state.get("subAccount") or "").strip()
-    if target:
+    targets = []
+    for key in ("lastKnownLoginAccount", "subAccount", "loginHint"):
+        target = str(state.get(key) or "").strip()
+        if target and target not in targets:
+            targets.append(target)
+    for target in targets:
         for row in rows:
             if not isinstance(row, Mapping):
                 continue
-            row_identity = _first_text(row.get("cs_name"), row.get("uid"))
-            if row_identity and target in (row_identity, str(row.get("uid") or "")):
+            identities = [
+                str(value or "").strip()
+                for value in (row.get("cs_name"), row.get("uid"), row.get("mms_uid"))
+                if str(value or "").strip()
+            ]
+            if target in identities:
                 return row
-    return rows[0]
+    raise PddWorkloadCaptureError("拼多多接口返回多个客服，但当前账号未匹配到目标客服，请补充登录识别名。")
 
 
 def normalize_pdd_cookie_header(cookie: str) -> str:
@@ -225,10 +234,9 @@ def _rate(value: Any) -> Any:
     metric = convert_metric_value("wwReplyRate", value)
     if metric is None:
         return None
-    result = round(metric * 100, 2)
-    if result > 100:
-        return round(metric, 2)
-    return result
+    if abs(metric) <= 1:
+        return round(metric * 100, 2)
+    return round(metric, 2)
 
 
 def _fen_to_yuan(value: Any) -> Any:

@@ -14,6 +14,9 @@ public class SpiderDataUploadDTO {
     /** 店铺ID（在本系统中注册的 biz_shop.shop_id） */
     private Long shopId;
 
+    /** 平台类型：1=淘宝/千牛，2=京东，3=拼多多 */
+    private Integer platformType;
+
     /** 数据日期，格式 yyyy-MM-dd */
     @JsonFormat(pattern = "yyyy-MM-dd")
     private Date recordDate;
@@ -53,6 +56,9 @@ public class SpiderDataUploadDTO {
 
     public Long getShopId() { return shopId; }
     public void setShopId(Long shopId) { this.shopId = shopId; }
+
+    public Integer getPlatformType() { return platformType; }
+    public void setPlatformType(Integer platformType) { this.platformType = platformType; }
 
     public Date getRecordDate() { return recordDate; }
     public void setRecordDate(Date recordDate) { this.recordDate = recordDate; }

@@ -9,6 +9,9 @@
       <el-form-item label="店铺名称">
         <el-input v-model="account.shopName" />
       </el-form-item>
+      <el-form-item label="系统店铺ID">
+        <el-input-number v-model="account.shopId" :min="0" :precision="0" class="full-input" />
+      </el-form-item>
       <el-form-item label="账户备注">
         <el-input v-model="account.displayName" />
       </el-form-item>

@@ -114,7 +114,7 @@ def capture_enabled_accounts(
                     "accountId": account.get("id"),
                     "displayName": display_name,
                     "ok": False,
-                    "errorType": "login_required" if status == "需要重新登录" else "generic",
+                    "errorType": _error_type(exc, status),
                     "message": message,
                     "loginStatus": status,
                     "lastCaptureAt": now_text,
@@ -360,6 +360,14 @@ def _failure_reason(exc: Exception) -> str:
     if isinstance(exc, DirectApiCaptureError):
         return "接口失败"
     return "采集失败"
+
+
+def _error_type(exc: Exception, status: str) -> str:
+    if exc.__class__.__name__ == "JdWorkloadIdentityRequiredError":
+        return "identity_required"
+    if status == "需要重新登录":
+        return "login_required"
+    return "generic"
 
 
 def _upload_failure_reason(upload_message: str) -> str:

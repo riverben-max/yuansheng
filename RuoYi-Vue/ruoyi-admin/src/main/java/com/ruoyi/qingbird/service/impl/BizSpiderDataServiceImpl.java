@@ -41,11 +41,19 @@ public class BizSpiderDataServiceImpl implements IBizSpiderDataService {
         data.setShopId(uploadDTO.getShopId());
 
         BizShop shop = bizShopMapper.selectBizShopById(uploadDTO.getShopId());
-        if (shop != null) {
-            data.setEmployeeId(shop.getEmployeeId());
-        } else {
-            data.setEmployeeId(1L);
+        if (shop == null) {
+            throw new IllegalArgumentException("系统店铺不存在，请先在店铺管理中登记 shopId=" + uploadDTO.getShopId());
         }
+        if (shop.getEmployeeId() == null || shop.getEmployeeId() <= 0) {
+            throw new IllegalArgumentException("系统店铺未绑定员工，无法保存采集数据。shopId=" + uploadDTO.getShopId());
+        }
+        if (shop.getPlatformType() == null) {
+            throw new IllegalArgumentException("系统店铺未配置平台类型，无法校验上传数据。shopId=" + uploadDTO.getShopId());
+        }
+        if (!uploadDTO.getPlatformType().equals(shop.getPlatformType())) {
+            throw new IllegalArgumentException("上传平台类型与系统店铺平台不一致。shopId=" + uploadDTO.getShopId());
+        }
+        data.setEmployeeId(shop.getEmployeeId());
 
         data.setRecordDate(uploadDTO.getRecordDate());
         // 子账号为空时默认空字符串（匹配唯一键 NOT NULL DEFAULT ''）

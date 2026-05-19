@@ -81,6 +81,56 @@ class LoginAccountConfigTests(unittest.TestCase):
         self.assertEqual(account["shopName"], "")
         self.assertIn(account, state["loginAccounts"])
 
+    def test_add_login_account_allocates_unique_profile_when_name_repeats(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            state = {}
+
+            first = add_login_account(state, data_dir, display_name="新登录账户", platform="jd")
+            second = add_login_account(state, data_dir, display_name="新登录账户", platform="pdd")
+
+        self.assertNotEqual(first["profileDir"], second["profileDir"])
+        self.assertTrue(second["profileDir"].replace("\\", "/").endswith("-2"))
+
+    def test_ensure_login_accounts_reassigns_duplicate_profile_and_requires_relogin(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            shared_profile = str(data_dir / "profiles" / "account-b8b8fefd")
+            state = {
+                "loginAccounts": [
+                    {
+                        "id": "account-3",
+                        "platform": "jd",
+                        "displayName": "京东账号",
+                        "profileDir": shared_profile,
+                        "cookieProtected": "dpapi:v1:jd-cookie",
+                        "loginStatus": "采集成功",
+                    },
+                    {
+                        "id": "account-4",
+                        "platform": "pdd",
+                        "displayName": "拼多多账号",
+                        "profileDir": shared_profile,
+                        "cookieProtected": "dpapi:v1:pdd-cookie",
+                        "cookieUpdatedAt": "2026-05-19 12:52:39",
+                        "activeChromePort": 33963,
+                        "shadowChromePid": 23524,
+                        "loginStatus": "已登录",
+                    },
+                ]
+            }
+
+            accounts = ensure_login_accounts(state, data_dir)
+
+        self.assertEqual(accounts[0]["profileDir"], shared_profile)
+        self.assertNotEqual(accounts[1]["profileDir"], shared_profile)
+        self.assertTrue(accounts[1]["profileDir"].replace("\\", "/").endswith("/profiles/account-b8b8fefd-2"))
+        self.assertEqual(accounts[1]["loginStatus"], "需要重新登录")
+        self.assertEqual(accounts[1]["lastFailureReason"], "需要重新登录")
+        self.assertNotIn("cookieProtected", accounts[1])
+        self.assertNotIn("activeChromePort", accounts[1])
+        self.assertEqual(accounts[1]["shadowChromePid"], 0)
+
     def test_add_login_account_accepts_jd_platform_and_shop_name(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             data_dir = Path(temp_dir)
@@ -336,7 +386,7 @@ class BatchCaptureTests(unittest.TestCase):
         self.assertFalse(results[0]["ok"])
         self.assertTrue(results[1]["ok"])
         self.assertEqual(accounts[0]["loginStatus"], "需要重新登录")
-        self.assertEqual(accounts[1]["loginStatus"], "采集成功")
+        self.assertEqual(accounts[1]["loginStatus"], "采集成功+已上传")
         self.assertIn("lastResult", accounts[1])
 
     def test_batch_capture_marks_direct_login_required_as_relogin(self) -> None:
@@ -443,7 +493,7 @@ class BatchCaptureTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertTrue(results[0]["ok"])
         self.assertEqual(uploaded_sub_accounts, ["if自营菠萝"])
-        self.assertEqual(accounts[0]["loginStatus"], "采集成功")
+        self.assertEqual(accounts[0]["loginStatus"], "采集成功+已上传")
         self.assertEqual(accounts[0]["lastFailureReason"], "")
         self.assertEqual(accounts[0]["lastKnownLoginAccount"], "if自营菠萝")
         self.assertEqual(accounts[0]["lastCaptureSummary"]["subAccount"], "if自营菠萝")
@@ -562,9 +612,9 @@ class BatchCaptureTests(unittest.TestCase):
         )
 
         self.assertFalse(results[0]["ok"])
-        self.assertEqual(results[0]["errorType"], "generic")
+        self.assertEqual(results[0]["errorType"], "identity_required")
         self.assertEqual(accounts[0]["loginStatus"], "采集失败")
-        self.assertEqual(accounts[0]["lastFailureReason"], "采集失败")
+        self.assertEqual(accounts[0]["lastFailureReason"], "需要配置客服身份")
 
     def test_jd_account_without_registered_adapter_fails_instead_of_using_qn_capture(self) -> None:
         state = {"serverUrl": "http://example.com", "uploadHistory": {}}
@@ -670,7 +720,7 @@ class BatchCaptureTests(unittest.TestCase):
 
         self.assertEqual(captured_platforms, ["pdd"])
         self.assertTrue(results[0]["ok"])
-        self.assertEqual(accounts[0]["loginStatus"], "采集成功")
+        self.assertEqual(accounts[0]["loginStatus"], "采集成功+已上传")
         self.assertEqual(accounts[0]["lastKnownLoginAccount"], "屿你服饰星星")
 
     def test_missing_platform_still_uses_qn_capture(self) -> None:

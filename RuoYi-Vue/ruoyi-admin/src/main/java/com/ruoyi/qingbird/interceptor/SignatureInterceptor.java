@@ -22,10 +22,10 @@ import com.ruoyi.common.utils.sign.Md5Utils;
 public class SignatureInterceptor implements HandlerInterceptor {
     private static final Logger log = LoggerFactory.getLogger(SignatureInterceptor.class);
 
-    @Value("${qingbird.rpa.app-key:QINGBIRD_RPA_01}")
+    @Value("${qingbird.rpa.app-key:}")
     private String appKey;
 
-    @Value("${qingbird.rpa.secret-key:8c7v6b5n4m3,2.1/}")
+    @Value("${qingbird.rpa.secret-key:}")
     private String secretKey;
 
     @Value("${qingbird.rpa.ttl-seconds:300}")
@@ -44,11 +44,18 @@ public class SignatureInterceptor implements HandlerInterceptor {
         String timestamp = request.getHeader("X-Timestamp");
         String sign = request.getHeader("X-Sign");
 
+        if (isBlank(this.appKey) || isBlank(this.secretKey)) {
+            return returnErrorResponse(response, "RPA signature config missing");
+        }
+
         if (appKey == null || timestamp == null || sign == null) {
             return returnErrorResponse(response, "Missing signature headers (X-App-Key, X-Timestamp, X-Sign)");
         }
 
-        if (!this.appKey.equals(appKey)) {
+        String configuredAppKey = this.appKey.trim();
+        String configuredSecretKey = this.secretKey.trim();
+
+        if (!configuredAppKey.equals(appKey)) {
             return returnErrorResponse(response, "Invalid App-Key");
         }
 
@@ -66,14 +73,18 @@ public class SignatureInterceptor implements HandlerInterceptor {
         }
 
         // Expected Sign = MD5(APP_KEY + timestamp + SECRET_KEY)
-        String expectedSign = Md5Utils.hash(this.appKey + timestamp + this.secretKey);
+        String expectedSign = Md5Utils.hash(configuredAppKey + timestamp + configuredSecretKey);
 
         if (!expectedSign.equalsIgnoreCase(sign)) {
-            log.warn("Invalid signature. Expected: {}, Got: {}", expectedSign, sign);
+            log.warn("Invalid signature for appKey: {}", appKey);
             return returnErrorResponse(response, "Invalid Signature");
         }
 
         return true;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 
     private boolean returnErrorResponse(HttpServletResponse response, String message) throws Exception {

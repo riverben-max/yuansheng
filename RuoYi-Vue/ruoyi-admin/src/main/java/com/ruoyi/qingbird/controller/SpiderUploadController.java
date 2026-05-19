@@ -25,8 +25,11 @@ public class SpiderUploadController extends BaseController {
     @Anonymous // 允许无 token 匿名访问
     @PostMapping("/upload")
     public AjaxResult uploadSpiderData(@RequestBody SpiderDataUploadDTO uploadDTO) {
-        if (uploadDTO.getShopId() == null || uploadDTO.getRecordDate() == null) {
+        if (uploadDTO.getShopId() == null || uploadDTO.getShopId() <= 0 || uploadDTO.getRecordDate() == null) {
             return error("ShopId and RecordDate are required.");
+        }
+        if (uploadDTO.getPlatformType() == null) {
+            return error("PlatformType is required.");
         }
         try {
             String clientIp = IpUtils.getIpAddr();
@@ -36,6 +39,9 @@ public class SpiderUploadController extends BaseController {
             } else {
                 return error("Upload failed, please check logs.");
             }
+        } catch (IllegalArgumentException e) {
+            logger.warn("Invalid spider upload data: {}", e.getMessage());
+            return error(e.getMessage());
         } catch (Exception e) {
             logger.error("Error saving spider data", e);
             return error("Server error while processing spider data: " + e.getMessage());
