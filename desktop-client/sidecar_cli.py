@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import argparse
 from contextlib import contextmanager
 import json
@@ -167,20 +167,17 @@ class SidecarApp:
     def save_state(self, state: Mapping[str, Any]) -> None:
         try:
             self.data_dir.mkdir(parents=True, exist_ok=True)
+            state_json = json.dumps(dict(state), ensure_ascii=False, indent=2)
+            state_size_mb = len(state_json.encode("utf-8")) / (1024 * 1024)
+            if state_size_mb > 5:
+                self.emit(event("log", time=datetime.now().strftime("%H:%M:%S"),
+                                 message=f"配置文件较大（{state_size_mb:.1f}MB），建议清理历史数据。"))
             tmp_path = self.state_path.with_suffix(".json.tmp")
-            tmp_path.write_text(
-                json.dumps(dict(state), ensure_ascii=False, indent=2),
-                encoding="utf-8",
-                newline="\n",
-            )
+            tmp_path.write_text(state_json, encoding="utf-8", newline="\n")
             tmp_path.replace(self.state_path)
             backup = self.state_path.with_suffix(".json.bak")
             try:
-                backup.write_text(
-                    json.dumps(dict(state), ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                    newline="\n",
-                )
+                backup.write_text(state_json, encoding="utf-8", newline="\n")
             except Exception:
                 pass
         except Exception as exc:
@@ -233,6 +230,7 @@ class SidecarApp:
             login_hint=str(payload.get("loginHint") or ""),
             platform=str(payload.get("platform") or "qn"),
             shop_name=str(payload.get("shopName") or ""),
+            shop_id=int(payload.get("shopId") or 0),
         )
         if "enabled" in payload:
             account["enabled"] = bool(payload.get("enabled"))
@@ -248,8 +246,10 @@ class SidecarApp:
         for key in ("displayName", "loginHint", "profileDir", "shopName"):
             if key in payload:
                 account[key] = str(payload.get(key) or "").strip()
+        if "shopId" in payload:
+            account["shopId"] = int(payload.get("shopId") or 0)
         if "platform" in payload:
-            account["platform"] = _normalize_platform(payload.get("platform"))
+            account["platform"] = normalize_platform(payload.get("platform"))
         if "chromePort" in payload:
             account["chromePort"] = int(payload.get("chromePort") or 9222)
         if "enabled" in payload:
@@ -660,6 +660,15 @@ class SidecarApp:
         history = state.get("uploadHistory")
         if not isinstance(history, dict):
             return
+        cutoff = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+        stale_keys = []
+        for key, entry in history.items():
+            if isinstance(entry, dict):
+                record_date = str(entry.get("recordDate") or "")
+                if record_date and record_date < cutoff:
+                    stale_keys.append(key)
+        for key in stale_keys:
+            del history[key]
         if len(history) > 500:
             for key in list(history.keys())[:len(history) - 500]:
                 del history[key]
@@ -795,10 +804,6 @@ def _account_cookie_status(account: Mapping[str, Any]) -> str:
     if str(account.get("cookieProtected") or "").strip():
         return "已保存"
     return "未登录"
-
-
-def _normalize_platform(raw: Any) -> str:
-    return normalize_platform(raw)
 
 
 def _format_jd_login_diagnostics(browser_state: Mapping[str, Any], cookie_header: str) -> str:

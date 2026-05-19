@@ -6,8 +6,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.alibaba.fastjson2.JSON;
 import com.ruoyi.common.utils.SecurityUtils;
+import com.ruoyi.qingbird.domain.BizShop;
 import com.ruoyi.qingbird.domain.BizSpiderData;
 import com.ruoyi.qingbird.domain.dto.SpiderDataUploadDTO;
+import com.ruoyi.qingbird.mapper.BizShopMapper;
 import com.ruoyi.qingbird.mapper.BizSpiderDataMapper;
 import com.ruoyi.qingbird.service.IBizSpiderDataService;
 
@@ -16,6 +18,9 @@ public class BizSpiderDataServiceImpl implements IBizSpiderDataService {
 
     @Autowired
     private BizSpiderDataMapper bizSpiderDataMapper;
+
+    @Autowired
+    private BizShopMapper bizShopMapper;
 
     @Override
     public BizSpiderData selectSpiderDataById(Long id) {
@@ -35,8 +40,12 @@ public class BizSpiderDataServiceImpl implements IBizSpiderDataService {
         BizSpiderData data = new BizSpiderData();
         data.setShopId(uploadDTO.getShopId());
 
-        // TODO: 后续可通过 shop_id 查 biz_shop 自动取 employee_id
-        data.setEmployeeId(1L);
+        BizShop shop = bizShopMapper.selectBizShopById(uploadDTO.getShopId());
+        if (shop != null) {
+            data.setEmployeeId(shop.getEmployeeId());
+        } else {
+            data.setEmployeeId(1L);
+        }
 
         data.setRecordDate(uploadDTO.getRecordDate());
         // 子账号为空时默认空字符串（匹配唯一键 NOT NULL DEFAULT ''）

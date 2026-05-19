@@ -8,13 +8,13 @@ import re
 from typing import Any, Callable, Dict, Iterable, List, Mapping, MutableMapping
 
 from shadow_browser import DEFAULT_REMOTE_PORT, default_shadow_profile_dir
-from spider_core import format_employee_summary, payload_signature
-from direct_api_capture import DirectApiCaptureError
+from spider_core import format_employee_summary, payload_signature, positive_int
+from direct_api_capture import DirectApiCaptureError, DirectApiLoginRequiredError
 from platform_adapters import CaptureAdapter, select_capture_adapter
+from platform_config import normalize_platform
 
 
 LoginAccount = Dict[str, Any]
-VALID_PLATFORMS = {"qn", "jd", "pdd"}
 DISPLAY_METRIC_KEYS = (
     "consultationCount",
     "receiveCount",
@@ -34,6 +34,7 @@ def ensure_login_accounts(state: MutableMapping[str, Any], data_dir: Path) -> Li
         accounts = [_normalize_account(item, data_dir, index) for index, item in enumerate(raw_accounts)]
     else:
         accounts = [_legacy_account_from_state(state, data_dir)]
+    _ensure_unique_profile_dirs(accounts, data_dir)
     state["loginAccounts"] = accounts
     return accounts
 
@@ -45,20 +46,23 @@ def add_login_account(
     login_hint: str = "",
     platform: str = "qn",
     shop_name: str = "",
+    shop_id: int = 0,
 ) -> LoginAccount:
     accounts = ensure_login_accounts(state, data_dir)
 
     clean_name = str(display_name or "").strip() or f"账号{len(accounts) + 1}"
     clean_hint = str(login_hint or "").strip()
     slug = _profile_slug(clean_hint or clean_name)
+    profile_dir = _unique_profile_dir(data_dir, slug, _used_profile_paths(accounts))
     account = {
         "id": _next_account_id(accounts),
         "displayName": clean_name,
         "loginHint": clean_hint,
-        "platform": _normalize_platform(platform),
+        "platform": normalize_platform(platform),
         "shopName": str(shop_name or "").strip(),
+        "shopId": int(shop_id) if shop_id else 0,
         "enabled": True,
-        "profileDir": str(data_dir / "profiles" / slug),
+        "profileDir": str(profile_dir),
         "chromePort": 0,
         "loginStatus": "待登录",
         "lastCaptureAt": "",
@@ -84,11 +88,13 @@ def capture_enabled_accounts(
     for index, account in enumerate(enabled_accounts, start=1):
         display_name = str(account.get("displayName") or account.get("loginHint") or account.get("id") or "").strip()
         log(f"开始采集登录账户 {index}/{len(enabled_accounts)}：{display_name or '--'}。")
-        platform = _normalize_platform(account.get("platform"))
+        platform = normalize_platform(account.get("platform"))
         try:
             account_state = build_account_state(state, account)
             selected_capture_func = select_capture_adapter(platform, adapters)
             payload = dict(selected_capture_func(account_state, log))
+            payload["platform"] = platform
+            payload["shopId"] = int(account.get("shopId") or 0)
             signature = payload_signature(payload)
             upload_message, upload_record = upload_func(state, payload, signature, reason)
         except Exception as exc:
@@ -123,8 +129,9 @@ def capture_enabled_accounts(
 
         summary = format_employee_summary(payload)
         now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        upload_succeeded = _upload_succeeded(upload_message, upload_record)
+        upload_succeeded = upload_record is not None
         failure_reason = "" if upload_succeeded else _upload_failure_reason(upload_message)
+        login_status = "采集成功+已上传" if upload_succeeded else "采集成功+上传失败"
         capture_summary = _build_capture_summary(
             display_name=display_name,
             payload=payload,
@@ -132,7 +139,7 @@ def capture_enabled_accounts(
             uploaded=upload_succeeded,
             upload_message=upload_message,
         )
-        account["loginStatus"] = "采集成功"
+        account["loginStatus"] = login_status
         account["lastCaptureAt"] = now_text
         account["lastResult"] = summary
         account["lastError"] = ""
@@ -153,7 +160,7 @@ def capture_enabled_accounts(
                 "uploadMessage": upload_message,
                 "uploadRecord": upload_record,
                 "lastCaptureSummary": capture_summary,
-                "loginStatus": "采集成功",
+                "loginStatus": login_status,
                 "lastCaptureAt": now_text,
                 "lastResult": summary,
                 "lastError": "",
@@ -174,18 +181,19 @@ def build_account_state(state: Mapping[str, Any], account: Mapping[str, Any]) ->
     account_state["captureEngine"] = "direct_api"
     account_state["directApiPreferred"] = True
     account_state["accountCookieRequired"] = True
-    account_state["platform"] = _normalize_platform(account.get("platform"))
+    account_state["platform"] = normalize_platform(account.get("platform"))
     account_state["shopName"] = str(account.get("shopName") or "").strip()
+    account_state["shopId"] = int(account.get("shopId") or 0)
     account_state["shadowChromeProfileDir"] = profile_dir
     account_state["chromeUserDataDir"] = profile_dir
     account_state["chromePort"] = _account_port(account)
-    shadow_pid = _positive_int(account.get("shadowChromePid"))
+    shadow_pid = positive_int(account.get("shadowChromePid"))
     if shadow_pid:
         account_state["shadowChromePid"] = shadow_pid
     protected_cookie = str(account.get("cookieProtected") or "").strip()
     if protected_cookie:
         account_state["cookieProtected"] = protected_cookie
-    active_port = _positive_int(account.get("activeChromePort"))
+    active_port = positive_int(account.get("activeChromePort"))
     if active_port:
         account_state["activeChromePort"] = active_port
     raw_login_hint = str(account.get("loginHint") or "").strip()
@@ -209,8 +217,9 @@ def _normalize_account(raw: Any, data_dir: Path, index: int) -> LoginAccount:
             "id": str(account.get("id") or f"account-{index + 1}"),
             "displayName": display_name,
             "loginHint": login_hint,
-            "platform": _normalize_platform(account.get("platform")),
+            "platform": normalize_platform(account.get("platform")),
             "shopName": str(account.get("shopName") or "").strip(),
+            "shopId": int(account.get("shopId") or 0),
             "enabled": bool(account.get("enabled", True)),
             "profileDir": profile_dir,
             "chromePort": _account_port(account),
@@ -220,7 +229,7 @@ def _normalize_account(raw: Any, data_dir: Path, index: int) -> LoginAccount:
             "lastError": str(account.get("lastError") or ""),
         }
     )
-    active_port = _positive_int(account.get("activeChromePort"))
+    active_port = positive_int(account.get("activeChromePort"))
     if active_port:
         account["activeChromePort"] = active_port
     else:
@@ -249,9 +258,61 @@ def _legacy_account_from_state(state: Mapping[str, Any], data_dir: Path) -> Logi
     }
 
 
-def _normalize_platform(raw: Any) -> str:
-    platform = str(raw or "").strip().lower()
-    return platform if platform in VALID_PLATFORMS else "qn"
+def _ensure_unique_profile_dirs(accounts: List[LoginAccount], data_dir: Path) -> None:
+    used: set[str] = set()
+    for account in accounts:
+        profile_dir = str(account.get("profileDir") or "").strip()
+        normalized = _normalize_profile_path(profile_dir)
+        if normalized and normalized not in used:
+            used.add(normalized)
+            continue
+
+        base_slug = _profile_slug(Path(profile_dir).name if profile_dir else "")
+        if not base_slug:
+            base_slug = _profile_slug(
+                str(account.get("displayName") or account.get("loginHint") or account.get("id") or "account")
+            )
+        replacement = _unique_profile_dir(data_dir, base_slug, used)
+        account["profileDir"] = str(replacement)
+        _clear_login_state_for_profile_change(account)
+        used.add(_normalize_profile_path(str(replacement)))
+
+
+def _clear_login_state_for_profile_change(account: MutableMapping[str, Any]) -> None:
+    message = "账号浏览器目录与其他账号重复，已分配独立目录，请重新登录。"
+    account["chromePort"] = 0
+    account["shadowChromePid"] = 0
+    account["loginStatus"] = "需要重新登录"
+    account["lastError"] = message
+    account["lastResult"] = message
+    account["lastFailureReason"] = "需要重新登录"
+    for key in ("cookieProtected", "cookieSummary", "cookieUpdatedAt", "activeChromePort"):
+        account.pop(key, None)
+
+
+def _used_profile_paths(accounts: Iterable[Mapping[str, Any]]) -> set[str]:
+    paths: set[str] = set()
+    for account in accounts:
+        normalized = _normalize_profile_path(str(account.get("profileDir") or ""))
+        if normalized:
+            paths.add(normalized)
+    return paths
+
+
+def _unique_profile_dir(data_dir: Path, base_slug: str, used_paths: set[str]) -> Path:
+    clean_slug = base_slug or "account"
+    index = 1
+    while True:
+        suffix = "" if index == 1 else f"-{index}"
+        candidate = data_dir / "profiles" / f"{clean_slug}{suffix}"
+        if _normalize_profile_path(str(candidate)) not in used_paths:
+            return candidate
+        index += 1
+
+
+def _normalize_profile_path(raw: str) -> str:
+    text = str(raw or "").strip().strip('"')
+    return str(Path(text)).replace("/", "\\").lower() if text else ""
 
 
 def _profile_slug(value: str) -> str:
@@ -282,36 +343,23 @@ def _account_port(account: Mapping[str, Any]) -> int:
         return 0
 
 
-def _positive_int(raw: Any) -> int:
-    try:
-        value = int(raw)
-    except Exception:
-        return 0
-    return value if value > 0 else 0
-
-
 def _looks_like_login_error(exc: Exception) -> bool:
     if exc.__class__.__name__ == "JdWorkloadIdentityRequiredError":
         return False
+    if isinstance(exc, DirectApiLoginRequiredError):
+        return True
     text = str(exc)
-    return "登录" in text or exc.__class__.__name__ in {"LoginRequiredError", "DirectApiLoginRequiredError"}
+    return "登录" in text
 
 
 def _failure_reason(exc: Exception) -> str:
     if exc.__class__.__name__ == "JdWorkloadIdentityRequiredError":
-        return "采集失败"
+        return "需要配置客服身份"
     if _looks_like_login_error(exc):
         return "需要重新登录"
     if isinstance(exc, DirectApiCaptureError):
         return "接口失败"
     return "采集失败"
-
-
-def _upload_succeeded(upload_message: str, upload_record: Mapping[str, Any] | None) -> bool:
-    if upload_record is not None:
-        return True
-    message = str(upload_message or "")
-    return "上传成功" in message or "已上传过" in message or "跳过重复上传" in message
 
 
 def _upload_failure_reason(upload_message: str) -> str:

@@ -155,6 +155,7 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Avatar, Refresh, OfficeBuilding, Coin, DataLine } from '@element-plus/icons-vue'
 import { getBranchOverview } from '@/api/qingbird/branch'
+import { platformLabel, platformTagType } from '@/utils/platform'
 
 const router = useRouter()
 const branchCode = 'B-1773208272961'
@@ -204,8 +205,8 @@ const progressColor = computed(() => {
   return '#FF8C00'
 })
 
-const platType = (p) => p === 1 ? 'warning' : p === 2 ? 'primary' : 'danger'
-const platLabel = (p) => p === 1 ? '淘宝' : p === 2 ? '京东' : '拼多多'
+const platType = platformTagType
+const platLabel = platformLabel
 
 const fetchData = async () => {
   loading.value = true

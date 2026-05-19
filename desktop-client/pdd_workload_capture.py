@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-import json
-import time
 from typing import Any, Callable, Dict, Mapping
 
+import httpx
+
 from direct_api_capture import DirectApiCaptureError, DirectApiLoginRequiredError
-from platform_config import PDD_CHAT_OVERVIEW_URL, is_pdd_login_page
-from shadow_browser import ensure_shadow_browser
-from spider_core import convert_metric_value
+from platform_config import PDD_CHAT_OVERVIEW_URL
+from secure_storage import unprotect_text
+from spider_core import convert_metric_value, parse_json_text
 
 
 PDD_REPORT_PATH = "/chats/csReportDetail"
-PDD_CAPTURE_RESULT_KEY = "__YS_PDD_CAPTURE_RESULT"
+PDD_REPORT_URL = f"https://mms.pinduoduo.com{PDD_REPORT_PATH}"
+PDD_WORKLOAD_REFERER = PDD_CHAT_OVERVIEW_URL
+PDD_WORKLOAD_ORIGIN = "https://mms.pinduoduo.com"
+DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 SHANGHAI_TZ = timezone(timedelta(hours=8))
 
 
@@ -28,19 +31,19 @@ def capture_pdd_workload(
     state: Mapping[str, Any],
     log: Callable[[str], None],
     today: date | None = None,
-    browser_factory: Callable[[Mapping[str, Any], Callable[[str], None]], Any] | None = None,
+    client: Any = None,
 ) -> Dict[str, Any]:
+    cookie = _load_account_cookie(state)
+    normalized_cookie = normalize_pdd_cookie_header(cookie)
     request_params = build_pdd_report_request_params(today=today)
-    session_factory = browser_factory or ensure_shadow_browser
-    session = session_factory(state, log)
-    page = session.page
-    log(f"拼多多客服绩效采集：打开客服概览页，日期={request_params['recordDate']}。")
-    page.get(PDD_CHAT_OVERVIEW_URL)
-    time.sleep(1)
-    if is_pdd_login_page(str(getattr(page, "url", "") or "")):
-        raise PddWorkloadLoginRequiredError("拼多多页面跳转到登录页，需要重新登录。")
-
-    raw_data = fetch_pdd_report_data_via_page(page, request_params)
+    log(f"拼多多客服绩效接口采集：日期={request_params['recordDate']}。")
+    if normalized_cookie != cookie:
+        log(
+            "拼多多客服绩效 Cookie 已规范化："
+            f"长度 {len(cookie)} -> {len(normalized_cookie)}，"
+            f"数量 {_cookie_count(cookie)} -> {_cookie_count(normalized_cookie)}。"
+        )
+    raw_data = fetch_pdd_report_data(normalized_cookie, request_params, client=client)
     payload = parse_pdd_workload_payload(raw_data, request_params=request_params, state=state)
     log(f"拼多多客服绩效采集成功：{payload.get('subAccount')} / {payload.get('recordDate')}。")
     return payload
@@ -58,26 +61,42 @@ def build_pdd_report_request_params(today: date | None = None) -> Dict[str, Any]
     }
 
 
-def fetch_pdd_report_data_via_page(page: Any, request_params: Mapping[str, Any], timeout: float = 15.0) -> Any:
-    endpoint = f"{PDD_REPORT_PATH}?starttime={int(request_params['starttime'])}&endtime={int(request_params['endtime'])}"
-    page.run_js(_build_fetch_script(endpoint))
-    deadline = time.time() + timeout
-    last_raw = ""
-    while time.time() < deadline:
-        raw = page.run_js(f"JSON.stringify(window.{PDD_CAPTURE_RESULT_KEY} || null)")
-        last_raw = str(raw or "")
-        result = _parse_page_json(raw)
-        if not isinstance(result, Mapping) or not result.get("done"):
-            time.sleep(0.25)
-            continue
-        if result.get("ok") is True:
-            return result.get("data")
-        status = int(result.get("status") or 0)
-        message = str(result.get("error") or result.get("text") or f"HTTP {status}" if status else "未知错误")
-        if status in {401, 403} or "login" in message.lower() or "登录" in message:
-            raise PddWorkloadLoginRequiredError(f"拼多多客服绩效接口需要重新登录：{message}")
-        raise PddWorkloadCaptureError(f"拼多多客服绩效接口请求失败：{message}")
-    raise PddWorkloadCaptureError(f"拼多多客服绩效接口等待超时：{last_raw[:300]}")
+def fetch_pdd_report_data(cookie: str, request_params: Mapping[str, Any], client: Any = None) -> Any:
+    request_client = client or httpx
+    params = {
+        "starttime": request_params.get("starttime"),
+        "endtime": request_params.get("endtime"),
+    }
+    headers = {
+        "Cookie": cookie,
+        "User-Agent": DEFAULT_USER_AGENT,
+        "Accept": "*/*",
+        "Origin": PDD_WORKLOAD_ORIGIN,
+        "Referer": PDD_WORKLOAD_REFERER,
+    }
+    try:
+        response = request_client.get(
+            PDD_REPORT_URL,
+            params=params,
+            headers=headers,
+            timeout=10,
+        )
+    except httpx.HTTPError as exc:
+        raise PddWorkloadCaptureError(f"拼多多客服绩效接口请求失败：{exc}") from exc
+
+    status_code = int(getattr(response, "status_code", 0) or 0)
+    if status_code in {401, 403}:
+        raise PddWorkloadLoginRequiredError("拼多多 Cookie 已过期或无权限，需要重新登录。")
+    if status_code >= 400:
+        raise PddWorkloadCaptureError(f"拼多多客服绩效接口 HTTP 错误：{status_code}。{_response_text_summary(response)}")
+
+    try:
+        return response.json()
+    except Exception:
+        parsed = parse_json_text(str(getattr(response, "text", "") or "").strip())
+        if parsed is not None:
+            return parsed
+    raise PddWorkloadCaptureError("拼多多客服绩效接口响应不是可解析的 JSON。")
 
 
 def parse_pdd_workload_payload(raw_data: Any, request_params: Mapping[str, Any], state: Mapping[str, Any]) -> Dict[str, Any]:
@@ -90,9 +109,9 @@ def parse_pdd_workload_payload(raw_data: Any, request_params: Mapping[str, Any],
     rows = result.get("data") if isinstance(result, Mapping) else None
     if not isinstance(rows, list) or not rows:
         raise PddWorkloadCaptureError("拼多多客服绩效接口响应里没有客服绩效数据。")
-    row = rows[0]
+    row = _find_pdd_target_row(rows, state)
     if not isinstance(row, Mapping):
-        raise PddWorkloadCaptureError("拼多多客服绩效接口第一行不是对象。")
+        raise PddWorkloadCaptureError("拼多多客服绩效接口匹配行不是对象。")
 
     record_date = str(request_params.get("recordDate") or "").strip()
     sub_account = _first_text(row.get("cs_name"), row.get("uid"))
@@ -102,7 +121,7 @@ def parse_pdd_workload_payload(raw_data: Any, request_params: Mapping[str, Any],
         {
             "source": "pdd_cs_report_detail",
             "accountIdentity": sub_account,
-            "requestUrl": f"https://mms.pinduoduo.com{PDD_REPORT_PATH}",
+            "requestUrl": PDD_REPORT_URL,
             "requestParams": {
                 "starttime": request_params.get("starttime"),
                 "endtime": request_params.get("endtime"),
@@ -127,49 +146,70 @@ def parse_pdd_workload_payload(raw_data: Any, request_params: Mapping[str, Any],
     }
 
 
-def _build_fetch_script(endpoint: str) -> str:
-    endpoint_json = json.dumps(endpoint, ensure_ascii=False)
-    return f"""
-(() => {{
-  window.{PDD_CAPTURE_RESULT_KEY} = {{ done: false }};
-  fetch({endpoint_json}, {{ credentials: 'include' }})
-    .then(async (response) => {{
-      const text = await response.text();
-      let data = null;
-      try {{
-        data = JSON.parse(text);
-      }} catch (error) {{}}
-      window.{PDD_CAPTURE_RESULT_KEY} = {{
-        done: true,
-        ok: response.ok,
-        status: response.status,
-        url: response.url,
-        data,
-        text: data ? '' : text.slice(0, 1000)
-      }};
-    }})
-    .catch((error) => {{
-      window.{PDD_CAPTURE_RESULT_KEY} = {{
-        done: true,
-        ok: false,
-        error: String(error)
-      }};
-    }});
-  return true;
-}})()
-"""
+def _find_pdd_target_row(rows: list, state: Mapping[str, Any]) -> Mapping[str, Any]:
+    if len(rows) == 1:
+        return rows[0]
+    target = str(state.get("lastKnownLoginAccount") or state.get("subAccount") or "").strip()
+    if target:
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            row_identity = _first_text(row.get("cs_name"), row.get("uid"))
+            if row_identity and target in (row_identity, str(row.get("uid") or "")):
+                return row
+    return rows[0]
 
 
-def _parse_page_json(raw: Any) -> Any:
-    if isinstance(raw, (dict, list)):
-        return raw
-    text = str(raw or "").strip()
-    if not text or text == "null":
-        return None
+def normalize_pdd_cookie_header(cookie: str) -> str:
+    parts: list[tuple[str, str]] = []
+    names: set[str] = set()
+    for part in str(cookie or "").split(";"):
+        name, sep, value = part.strip().partition("=")
+        if not sep or not name:
+            continue
+        clean_name = name.strip()
+        parts.append((clean_name, value.strip()))
+        names.add(clean_name)
+    missing: list[str] = []
+    for required in ("PASS_ID", "JSESSIONID"):
+        if required not in names:
+            missing.append(required)
+    if not any(name.startswith("mms_") for name in names):
+        missing.append("mms_*")
+    if not any(name.startswith("windows_app_shop_token_") for name in names):
+        missing.append("windows_app_shop_token_*")
+    if missing:
+        raise PddWorkloadLoginRequiredError(f"拼多多账号 Cookie 缺少 {'、'.join(missing)}，需要重新登录。")
+    return "; ".join(f"{name}={value}" for name, value in parts)
+
+
+def _load_account_cookie(state: Mapping[str, Any]) -> str:
+    protected_cookie = str(state.get("cookieProtected") or "").strip()
+    if not protected_cookie:
+        raise PddWorkloadLoginRequiredError("拼多多账号未保存 Cookie，需要重新登录。")
     try:
-        return json.loads(text)
-    except Exception:
-        return None
+        cookie = str(unprotect_text(protected_cookie) or "").strip()
+    except Exception as exc:
+        raise PddWorkloadLoginRequiredError(f"拼多多账号 Cookie 解密失败，需要重新登录：{exc}") from exc
+    if not cookie:
+        raise PddWorkloadLoginRequiredError("拼多多账号 Cookie 为空，需要重新登录。")
+    return cookie
+
+
+def _response_text_summary(response: Any) -> str:
+    text = str(getattr(response, "text", "") or "").strip()
+    if not text:
+        return ""
+    compact = " ".join(text.split())
+    return f"响应摘要：{compact[:300]}"
+
+
+def _cookie_count(cookie: str) -> int:
+    count = 0
+    for part in str(cookie or "").split(";"):
+        if part.strip().partition("=")[1]:
+            count += 1
+    return count
 
 
 def _metric(output_key: str, value: Any) -> Any:
@@ -177,10 +217,18 @@ def _metric(output_key: str, value: Any) -> Any:
 
 
 def _rate(value: Any) -> Any:
+    """将拼多多API返回的小数比率转换为统一百分比数值（0-100）。
+
+    拼多多客服绩效接口返回的比率字段（inquiry_group_rate、reply_rate_3_min）
+    为小数格式（如 0.95 表示 95%），统一乘以 100 转换为百分比数值。
+    """
     metric = convert_metric_value("wwReplyRate", value)
     if metric is None:
         return None
-    return round(metric * 100, 2) if abs(metric) <= 1 else metric
+    result = round(metric * 100, 2)
+    if result > 100:
+        return round(metric, 2)
+    return result
 
 
 def _fen_to_yuan(value: Any) -> Any:
