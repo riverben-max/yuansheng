@@ -11,6 +11,7 @@ from shadow_browser import (
     build_shadow_launch_command,
     default_shadow_profile_dir,
     _cmdline_matches_shadow_process,
+    _find_shadow_pid,
     _read_devtools_active_port,
     _resolve_attach_port,
 )
@@ -27,13 +28,24 @@ class ShadowBrowserTests(unittest.TestCase):
             chrome_path=r"C:\Chrome\chrome.exe",
             port=9333,
             profile_dir=Path(r"D:\shadow-profile"),
-            visible=False,
+            visible=True,
         )
         self.assertIn("--remote-debugging-port=9333", command)
         self.assertIn("--user-data-dir=D:\\shadow-profile", command)
         self.assertIn("--window-position=120,120", command)
         self.assertIn("--disk-cache-size=10485760", command)
+        self.assertIn("--no-restore-session-state", command)
         self.assertNotIn("--new-window", command)
+
+    def test_build_hidden_shadow_launch_command_keeps_visible_position(self) -> None:
+        command = build_shadow_launch_command(
+            chrome_path=r"C:\Chrome\chrome.exe",
+            port=9333,
+            profile_dir=Path(r"D:\shadow-profile"),
+            visible=False,
+        )
+
+        self.assertIn("--window-position=120,120", command)
 
     def test_build_shadow_launch_command_allows_auto_debug_port(self) -> None:
         command = build_shadow_launch_command(
@@ -105,6 +117,69 @@ class ShadowBrowserTests(unittest.TestCase):
         self.assertTrue(_cmdline_matches_shadow_process(cmdline, Path(r"D:\shadow-profile"), 0, "chrome.exe"))
         self.assertTrue(_cmdline_matches_shadow_process(cmdline, Path(r"D:\shadow-profile"), 9222, "chrome.exe"))
         self.assertFalse(_cmdline_matches_shadow_process(cmdline, Path(r"D:\other-profile"), 0, "chrome.exe"))
+
+    def test_cmdline_match_allows_edge_process_for_same_profile_cleanup(self) -> None:
+        cmdline = [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            "--remote-debugging-port=45678",
+            r"--user-data-dir=D:\shadow-profile",
+        ]
+
+        self.assertTrue(_cmdline_matches_shadow_process(cmdline, Path(r"D:\shadow-profile"), 0, "msedge.exe"))
+
+    def test_find_shadow_pid_prefers_root_browser_process_over_children(self) -> None:
+        root = SimpleNamespace(
+            pid=3001,
+            info={
+                "name": "chrome.exe",
+                "cmdline": [
+                    r"C:\Chrome\chrome.exe",
+                    "--remote-debugging-port=45678",
+                    r"--user-data-dir=D:\shadow-profile",
+                ],
+            },
+        )
+        child = SimpleNamespace(
+            pid=3002,
+            info={
+                "name": "chrome.exe",
+                "cmdline": [
+                    r"C:\Chrome\chrome.exe",
+                    "--type=renderer",
+                    r"--user-data-dir=D:\shadow-profile",
+                ],
+            },
+        )
+
+        with patch("shadow_browser.psutil.process_iter", return_value=[child, root]):
+            self.assertEqual(_find_shadow_pid(Path(r"D:\shadow-profile"), 45678), 3001)
+
+    def test_shadow_closed_reason_ignores_stale_pid_when_profile_process_exists(self) -> None:
+        root = SimpleNamespace(
+            pid=3001,
+            info={
+                "name": "chrome.exe",
+                "cmdline": [
+                    r"C:\Chrome\chrome.exe",
+                    "--remote-debugging-port=45678",
+                    r"--user-data-dir=D:\shadow-profile",
+                ],
+            },
+        )
+
+        with (
+            patch("shadow_browser.psutil.pid_exists", return_value=False),
+            patch("shadow_browser.psutil.process_iter", return_value=[root]),
+        ):
+            reason = shadow_browser.shadow_browser_closed_reason(
+                {
+                    "shadowChromeProfileDir": r"D:\shadow-profile",
+                    "shadowChromePid": 999999,
+                    "activeChromePort": 45678,
+                }
+            )
+
+        self.assertEqual(reason, "")
 
     def test_cmdline_match_identifies_drission_temp_browser_for_port(self) -> None:
         cmdline = [

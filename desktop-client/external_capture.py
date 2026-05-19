@@ -4,7 +4,7 @@ import time
 from typing import Any, Callable, Dict, List, Mapping
 from urllib.parse import unquote
 
-from platform_config import is_jd_relevant_page, normalize_platform
+from platform_config import is_jd_relevant_page, is_pdd_relevant_page, login_start_url_for_platform, normalize_platform
 from shadow_browser import ShadowBrowserError, attach_or_recover_shadow_browser, ensure_shadow_browser, show_shadow_browser_window
 from spider_core import EMPLOYEE_TARGET_URL, PageSnapshot, normalize_account_for_match, snapshot_requires_login
 from table_capture import merge_table_round_payloads, parse_json_payload, table_result_to_payload
@@ -331,9 +331,9 @@ def _ensure_login_relevant_page(page: Any, log: Callable[[str], None], platform:
     if selected is not None:
         page = selected
     if _should_open_target_page(str(getattr(page, "url", "") or ""), platform):
-        page.get(EMPLOYEE_TARGET_URL)
+        page.get(_login_target_url_for_platform(platform))
         time.sleep(1)
-    _close_noise_tabs(page, log)
+    _close_noise_tabs(page, log, platform)
     log(f"当前接管页面：{getattr(page, 'title', '') or '--'} {getattr(page, 'url', '') or '--'}")
     return page
 
@@ -357,13 +357,15 @@ def _should_open_target_page(url: str, platform: str = "qn") -> bool:
         return True
     if _is_login_relevant_url(normalized, platform):
         return False
-    return normalized.startswith(("about:blank", "chrome://newtab", "chrome://new-tab-page")) or "google." in normalized
+    return True
 
 
 def _is_login_relevant_url(url: str, platform: str = "qn") -> bool:
     normalized = str(url or "").strip().lower()
     if normalize_platform(platform) == "jd":
         return is_jd_relevant_page(normalized)
+    if normalize_platform(platform) == "pdd":
+        return is_pdd_relevant_page(normalized)
     return any(
         marker in normalized
         for marker in (
@@ -376,7 +378,11 @@ def _is_login_relevant_url(url: str, platform: str = "qn") -> bool:
     )
 
 
-def _close_noise_tabs(page: Any, log: Callable[[str], None]) -> None:
+def _login_target_url_for_platform(platform: str = "qn") -> str:
+    return EMPLOYEE_TARGET_URL if normalize_platform(platform) == "qn" else login_start_url_for_platform(platform)
+
+
+def _close_noise_tabs(page: Any, log: Callable[[str], None], platform: str = "qn") -> None:
     try:
         tabs = list(page.get_tabs() or [])
     except Exception:
@@ -384,7 +390,7 @@ def _close_noise_tabs(page: Any, log: Callable[[str], None]) -> None:
     current_url = str(getattr(page, "url", "") or "")
     for tab in tabs:
         url = str(getattr(tab, "url", "") or "")
-        if url == current_url or not _should_open_target_page(url):
+        if url == current_url or not _should_open_target_page(url, platform):
             continue
         try:
             tab.close()

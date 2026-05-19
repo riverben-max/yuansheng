@@ -3,19 +3,28 @@ from __future__ import annotations
 import unittest
 
 import external_capture
+from platform_config import PDD_LOGIN_URL
 from spider_core import EMPLOYEE_TARGET_URL, PageSnapshot, snapshot_requires_login
 
 
 class FakePage:
-    def __init__(self, url: str, title: str = "新标签页") -> None:
+    def __init__(self, url: str, title: str = "新标签页", tabs: list["FakePage"] | None = None) -> None:
         self.url = url
         self.title = title
         self.opened_urls = []
+        self._tabs = tabs or []
+        self.closed = False
 
     def get(self, url: str) -> None:
         self.opened_urls.append(url)
         self.url = url
-        self.title = "千牛工作台"
+        self.title = "客服数据" if "pinduoduo.com" in url else "千牛工作台"
+
+    def get_tabs(self):
+        return self._tabs
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class ExternalCapturePageSelectionTests(unittest.TestCase):
@@ -45,6 +54,36 @@ class ExternalCapturePageSelectionTests(unittest.TestCase):
 
         self.assertEqual(page.opened_urls, [])
         self.assertTrue(any("kf.jd.com" in item for item in logs))
+
+    def test_pdd_login_check_keeps_existing_pdd_page(self) -> None:
+        page = FakePage("https://mms.pinduoduo.com/mms-chat/overview/merchant", "客服数据")
+        logs = []
+
+        external_capture._ensure_login_relevant_page(page, logs.append, platform="pdd")
+
+        self.assertEqual(page.opened_urls, [])
+        self.assertTrue(any("mms.pinduoduo.com" in item for item in logs))
+
+    def test_pdd_login_check_navigates_taobao_page_to_pdd_entry(self) -> None:
+        page = FakePage("https://loginmyseller.taobao.com/", "千牛登录")
+        logs = []
+
+        external_capture._ensure_login_relevant_page(page, logs.append, platform="pdd")
+
+        self.assertEqual(page.opened_urls, [PDD_LOGIN_URL])
+        self.assertTrue(any("mms.pinduoduo.com" in item for item in logs))
+
+    def test_pdd_login_check_selects_existing_pdd_tab_over_taobao_active_tab(self) -> None:
+        pdd_tab = FakePage("https://mms.pinduoduo.com/mms-chat/overview/merchant", "客服数据")
+        qn_tab = FakePage("https://loginmyseller.taobao.com/", "千牛登录")
+        page = FakePage("https://loginmyseller.taobao.com/", "千牛登录", tabs=[qn_tab, pdd_tab])
+        logs = []
+
+        selected = external_capture._ensure_login_relevant_page(page, logs.append, platform="pdd")
+
+        self.assertIs(selected, pdd_tab)
+        self.assertEqual(pdd_tab.opened_urls, [])
+        self.assertTrue(any("mms.pinduoduo.com" in item for item in logs))
 
     def test_loginmyseller_page_always_requires_login(self) -> None:
         snapshot = PageSnapshot(
