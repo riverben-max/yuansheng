@@ -12,32 +12,40 @@ export function useCapture(callSidecar, refreshState, applyState) {
   }
 
   async function runCapture(command, payload) {
-    captureBusy.value = true;
-    try {
-      const result = await callSidecar(command, payload);
-      if (result?.ok) {
-        if (result.data?.state) applyState(result.data.state);
-        await refreshState();
-        showCaptureMessage(result.data);
-      }
-    } finally {
-      captureBusy.value = false;
+    const result = await callSidecar(command, payload);
+    if (result?.ok) {
+      if (result.data?.state) applyState(result.data.state);
+      await refreshState();
+      showCaptureMessage(result.data);
     }
   }
 
   async function captureAll(platform, platformCards) {
+    if (captureBusy.value) return { blocked: true, hint: "采集进行中，请稍后再试" };
     const action = platformCards.value.find(
       (card) => card.platform === normalizePlatform(platform),
     )?.action;
     if (action?.disabled) {
       return { blocked: true, hint: action.hint || "请先登录全部启用账号" };
     }
-    await runCapture("capture_all", {});
+    captureBusy.value = true;
+    try {
+      await runCapture("capture_all", {});
+    } finally {
+      captureBusy.value = false;
+    }
     return { blocked: false };
   }
 
   async function captureAccount(account) {
-    await runCapture("capture_account", { accountId: account.id });
+    if (captureBusy.value) return { blocked: true, hint: "采集进行中，请稍后再试" };
+    captureBusy.value = true;
+    try {
+      await runCapture("capture_account", { accountId: account.id });
+    } finally {
+      captureBusy.value = false;
+    }
+    return { blocked: false };
   }
 
   return { captureBusy, captureAll, captureAccount, runCapture };

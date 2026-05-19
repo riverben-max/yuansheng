@@ -11,6 +11,7 @@ export function useAccounts(callSidecar, refreshState, activePlatformFilter) {
     id: "",
     platform: "qn",
     shopName: "",
+    shopId: 0,
     displayName: "",
     loginHint: "",
     enabled: true,
@@ -25,6 +26,7 @@ export function useAccounts(callSidecar, refreshState, activePlatformFilter) {
         ? normalizePlatform(account?.platform)
         : defaultPlatformForNewAccount(activePlatformFilter.value),
       shopName: account?.shopName || "",
+      shopId: account?.shopId || 0,
       displayName: account?.displayName || "",
       loginHint: account?.loginHint || "",
       enabled: account?.enabled !== false,
@@ -40,6 +42,7 @@ export function useAccounts(callSidecar, refreshState, activePlatformFilter) {
       displayName: accountDialog.displayName,
       loginHint: accountDialog.loginHint,
       enabled: accountDialog.enabled,
+      shopId: accountDialog.shopId || 0,
     };
     const result = await callSidecar(command, payload);
     if (result?.ok) {

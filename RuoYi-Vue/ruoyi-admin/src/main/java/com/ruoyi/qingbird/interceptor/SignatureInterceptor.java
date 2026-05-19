@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 import com.alibaba.fastjson2.JSON;
@@ -21,9 +22,14 @@ import com.ruoyi.common.utils.sign.Md5Utils;
 public class SignatureInterceptor implements HandlerInterceptor {
     private static final Logger log = LoggerFactory.getLogger(SignatureInterceptor.class);
 
-    // TODO: In a real system, place these in yml or DB config
-    private static final String APP_KEY = "QINGBIRD_RPA_01";
-    private static final String SECRET_KEY = "8c7v6b5n4m3,2.1/";
+    @Value("${qingbird.rpa.app-key:QINGBIRD_RPA_01}")
+    private String appKey;
+
+    @Value("${qingbird.rpa.secret-key:8c7v6b5n4m3,2.1/}")
+    private String secretKey;
+
+    @Value("${qingbird.rpa.ttl-seconds:300}")
+    private int ttlSeconds;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
@@ -42,11 +48,11 @@ public class SignatureInterceptor implements HandlerInterceptor {
             return returnErrorResponse(response, "Missing signature headers (X-App-Key, X-Timestamp, X-Sign)");
         }
 
-        if (!APP_KEY.equals(appKey)) {
+        if (!this.appKey.equals(appKey)) {
             return returnErrorResponse(response, "Invalid App-Key");
         }
 
-        // Validate timestamp (protect against replay attacks, e.g., 5 mins overlap)
+        // Validate timestamp (protect against replay attacks)
         long currentSeconds = System.currentTimeMillis() / 1000;
         long reqSeconds = 0;
         try {
@@ -54,17 +60,13 @@ public class SignatureInterceptor implements HandlerInterceptor {
         } catch (NumberFormatException e) {
             return returnErrorResponse(response, "Invalid Timestamp Format");
         }
-        
-        if (Math.abs(currentSeconds - reqSeconds) > 300) {
+
+        if (Math.abs(currentSeconds - reqSeconds) > this.ttlSeconds) {
             return returnErrorResponse(response, "Request expired or timestamp invalid");
         }
 
-        // Since request body might be consumed if we read it here as JSON,
-        // a simpler approach is MD5(APP_KEY + timestamp + SECRET_KEY).
-        // If we want body sorting, we need a RequestWrapper to re-read InputStream.
-        // For phase 1 speed and safety, we use Header-based HMAC MD5.
         // Expected Sign = MD5(APP_KEY + timestamp + SECRET_KEY)
-        String expectedSign = Md5Utils.hash(APP_KEY + timestamp + SECRET_KEY);
+        String expectedSign = Md5Utils.hash(this.appKey + timestamp + this.secretKey);
 
         if (!expectedSign.equalsIgnoreCase(sign)) {
             log.warn("Invalid signature. Expected: {}, Got: {}", expectedSign, sign);

@@ -12,7 +12,7 @@ import winreg
 import psutil
 
 from platform_config import QN_LOGIN_URL
-from spider_core import EMPLOYEE_TARGET_URL
+from spider_core import EMPLOYEE_TARGET_URL, positive_int
 
 DEFAULT_REMOTE_PORT = 9222
 DEFAULT_DISK_CACHE_SIZE = 10 * 1024 * 1024
@@ -236,11 +236,14 @@ def is_shadow_browser_running(config: Mapping[str, Any]) -> bool:
 
 
 def shadow_browser_closed_reason(config: Mapping[str, Any]) -> str:
-    expected_pid = _positive_int(config.get("shadowChromePid"))
-    active_port = _positive_int(config.get("activeChromePort"))
+    expected_pid = positive_int(config.get("shadowChromePid"))
+    active_port = positive_int(config.get("activeChromePort"))
     if expected_pid <= 0:
         return ""
     if not psutil.pid_exists(expected_pid):
+        profile_dir = _resolve_profile_dir(config)
+        if _find_shadow_processes(profile_dir, active_port):
+            return ""
         return "登录窗口进程已退出。"
     if active_port > 0 and not _port_is_open(active_port):
         return f"登录窗口调试端口 {active_port} 已关闭。"
@@ -254,7 +257,7 @@ def build_shadow_launch_command(
     visible: bool,
     startup_url: str = EMPLOYEE_TARGET_URL,
 ) -> list[str]:
-    position = VISIBLE_POSITION
+    position = VISIBLE_POSITION if visible else HIDDEN_POSITION
     url = startup_url.strip() or "about:blank"
     return [
         chrome_path,
@@ -262,6 +265,7 @@ def build_shadow_launch_command(
         f"--user-data-dir={profile_dir}",
         "--no-first-run",
         "--no-default-browser-check",
+        "--no-restore-session-state",
         f"--window-position={position}",
         f"--window-size={WINDOW_SIZE}",
         f"--disk-cache-size={DEFAULT_DISK_CACHE_SIZE}",
@@ -365,7 +369,7 @@ def _resolve_launch_port(config: Mapping[str, Any]) -> int:
 
 
 def _resolve_attach_port(config: Mapping[str, Any], profile_dir: Path) -> int:
-    active_port = _positive_int(config.get("activeChromePort"))
+    active_port = positive_int(config.get("activeChromePort"))
     if active_port:
         return active_port
     endpoint = _read_devtools_active_port(profile_dir)
@@ -378,14 +382,6 @@ def _resolve_attach_port(config: Mapping[str, Any], profile_dir: Path) -> int:
         return int(raw_port)
     except Exception:
         return DEFAULT_REMOTE_PORT
-
-
-def _positive_int(raw: Any) -> int:
-    try:
-        value = int(raw)
-    except Exception:
-        return 0
-    return value if value > 0 else 0
 
 
 def _resolve_profile_dir(config: Mapping[str, Any]) -> Path:
@@ -492,7 +488,10 @@ def _remove_devtools_active_port(profile_dir: Path) -> None:
 
 def _find_shadow_pid(profile_dir: Path, port: int) -> int | None:
     processes = _find_shadow_processes(profile_dir, port)
-    return processes[0].pid if processes else None
+    if not processes:
+        return None
+    root_process = next((process for process in processes if _is_root_browser_process(process)), None)
+    return (root_process or processes[0]).pid
 
 
 def _find_shadow_processes(profile_dir: Path, port: int) -> list[psutil.Process]:
@@ -505,6 +504,15 @@ def _find_shadow_processes(profile_dir: Path, port: int) -> list[psutil.Process]
         if _cmdline_matches_shadow_process(cmdline, profile_dir, port, process.info.get("name")):
             matches.append(process)
     return matches
+
+
+def _is_root_browser_process(process: psutil.Process) -> bool:
+    try:
+        cmdline = process.info.get("cmdline") or []
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return False
+    parts = [str(item) for item in cmdline if item]
+    return not any(part.strip().startswith("--type=") for part in parts)
 
 
 def kill_drission_temp_browsers(port: int, log: Callable[[str], None]) -> int:
@@ -563,7 +571,7 @@ def _cmdline_matches_shadow_process(
     parts = [str(item) for item in cmdline if item]
     if not parts:
         return False
-    if process_name and "chrome" not in process_name.lower():
+    if process_name and not _is_supported_chromium_process(process_name):
         return False
     normalized_target = _normalize_path(str(profile_dir))
     matched_profile = False
@@ -585,7 +593,7 @@ def _cmdline_matches_drission_temp_process(
     parts = [str(item) for item in cmdline if item]
     if not parts:
         return False
-    if process_name and "chrome" not in process_name.lower():
+    if process_name and not _is_supported_chromium_process(process_name):
         return False
     matched_port = False
     matched_drission_profile = False
@@ -608,6 +616,11 @@ def _cmdline_matches_drission_temp_process(
 
 def _normalize_path(raw: str) -> str:
     return str(Path(raw.strip().strip('"')).expanduser()).replace("/", "\\").lower()
+
+
+def _is_supported_chromium_process(process_name: str) -> bool:
+    normalized = str(process_name or "").lower()
+    return "chrome" in normalized or "msedge" in normalized
 
 
 def _read_registry_default(root: int, sub_key: str) -> str:

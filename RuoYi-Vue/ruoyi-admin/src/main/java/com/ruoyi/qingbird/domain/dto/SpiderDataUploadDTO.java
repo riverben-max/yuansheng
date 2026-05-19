@@ -7,7 +7,7 @@ import com.fasterxml.jackson.annotation.JsonFormat;
 
 /**
  * 爬虫客户端上传数据 DTO
- * 对应千牛「服务数据」页面采集字段
+ * 对应各平台（千牛/京东/拼多多）客服绩效采集字段
  */
 public class SpiderDataUploadDTO {
 
@@ -18,7 +18,7 @@ public class SpiderDataUploadDTO {
     @JsonFormat(pattern = "yyyy-MM-dd")
     private Date recordDate;
 
-    /** 千牛客服子账号（无子账号时填主账号） */
+    /** 客服子账号（无子账号时填主账号） */
     private String subAccount;
 
     /** 咨询人数 */

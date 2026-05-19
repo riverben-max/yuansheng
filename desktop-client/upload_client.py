@@ -12,6 +12,7 @@ import httpx
 APP_KEY = "QINGBIRD_RPA_01"
 SECRET_KEY = "8c7v6b5n4m3,2.1/"
 EMPLOYEE_UPLOAD_PATH = "/spider/upload/employee-performance"
+PLATFORM_TYPE_MAP = {"qn": 1, "jd": 2, "pdd": 3}
 
 
 def _load_auth_overrides() -> tuple[str, str]:
@@ -32,11 +33,15 @@ class UploadClientError(RuntimeError):
 
 
 def build_employee_upload_payload(payload: Mapping[str, Any]) -> Dict[str, Any]:
+    platform_str = str(payload.get("platform") or "qn").strip().lower()
+    platform_type = PLATFORM_TYPE_MAP.get(platform_str, 1)
+    shop_id = payload.get("shopId")
     return {
+        "shopId": int(shop_id) if shop_id is not None else None,
         "loginAccount": payload.get("loginAccount"),
         "recordDate": payload.get("recordDate"),
         "subAccount": payload.get("subAccount"),
-        "platformType": 1,
+        "platformType": platform_type,
         "consultationCount": payload.get("consultationCount"),
         "receiveCount": payload.get("receiveCount"),
         "validReceiveCount": payload.get("validReceiveCount"),
