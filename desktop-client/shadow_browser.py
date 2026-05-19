@@ -64,17 +64,14 @@ def default_shadow_profile_dir() -> Path:
 
 
 def resolve_chrome_path(config: Mapping[str, Any] | None = None) -> str:
-    config = config or {}
-    if _normalize_browser_engine(config.get("browserEngine")) == "edge":
-        edge_path = _resolve_edge_path(config)
-        if edge_path:
-            return edge_path
-
-    configured = str(config.get("chromePath") or "").strip()
+    configured = str((config or {}).get("chromePath") or "").strip()
     if configured and Path(configured).exists():
         return configured
 
-    for key_path in _browser_registry_paths("chrome.exe"):
+    for key_path in (
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
+        r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
+    ):
         registry_path = _read_registry_default(winreg.HKEY_CURRENT_USER, key_path)
         if registry_path and Path(registry_path).exists():
             return registry_path
@@ -87,25 +84,6 @@ def resolve_chrome_path(config: Mapping[str, Any] | None = None) -> str:
             return str(candidate)
 
     raise ChromeNotFoundError("未找到 Chrome。请先安装 Chrome，或在配置中指定 chromePath。")
-
-
-def _resolve_edge_path(config: Mapping[str, Any]) -> str:
-    configured = str(config.get("edgePath") or "").strip()
-    if configured and Path(configured).exists():
-        return configured
-
-    for key_path in _browser_registry_paths("msedge.exe"):
-        registry_path = _read_registry_default(winreg.HKEY_CURRENT_USER, key_path)
-        if registry_path and Path(registry_path).exists():
-            return registry_path
-        registry_path = _read_registry_default(winreg.HKEY_LOCAL_MACHINE, key_path)
-        if registry_path and Path(registry_path).exists():
-            return registry_path
-
-    for candidate in _common_edge_paths():
-        if candidate.exists():
-            return str(candidate)
-    return ""
 
 
 def attach_or_recover_shadow_browser(
@@ -641,17 +619,6 @@ def _read_registry_default(root: int, sub_key: str) -> str:
         return ""
 
 
-def _normalize_browser_engine(raw: Any) -> str:
-    return str(raw or "").strip().lower()
-
-
-def _browser_registry_paths(exe_name: str) -> tuple[str, str]:
-    return (
-        rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe_name}",
-        rf"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\{exe_name}",
-    )
-
-
 def _common_chrome_paths() -> list[Path]:
     candidates = [
         Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Google" / "Chrome" / "Application" / "chrome.exe",
@@ -660,15 +627,4 @@ def _common_chrome_paths() -> list[Path]:
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
         candidates.append(Path(local_app_data) / "Google" / "Chrome" / "Application" / "chrome.exe")
-    return candidates
-
-
-def _common_edge_paths() -> list[Path]:
-    candidates = [
-        Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
-        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
-    ]
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    if local_app_data:
-        candidates.append(Path(local_app_data) / "Microsoft" / "Edge" / "Application" / "msedge.exe")
     return candidates

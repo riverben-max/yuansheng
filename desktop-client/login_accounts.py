@@ -179,8 +179,6 @@ def build_account_state(state: Mapping[str, Any], account: Mapping[str, Any]) ->
     account_state["shadowChromeProfileDir"] = profile_dir
     account_state["chromeUserDataDir"] = profile_dir
     account_state["chromePort"] = _account_port(account)
-    if account_state["platform"] == "pdd":
-        account_state["browserEngine"] = "edge"
     shadow_pid = _positive_int(account.get("shadowChromePid"))
     if shadow_pid:
         account_state["shadowChromePid"] = shadow_pid

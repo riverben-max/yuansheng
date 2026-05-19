@@ -6,7 +6,6 @@ import unittest
 
 from login_accounts import (
     add_login_account,
-    build_account_state,
     capture_enabled_accounts,
     ensure_login_accounts,
 )
@@ -136,37 +135,6 @@ class LoginAccountConfigTests(unittest.TestCase):
         self.assertEqual(accounts[0]["platform"], "qn")
         self.assertEqual(accounts[0]["shopName"], "远盛电商")
         self.assertEqual(account["platform"], "qn")
-
-    def test_build_account_state_defaults_pdd_to_edge_browser(self) -> None:
-        state = {"chromePath": r"C:\Chrome\chrome.exe"}
-        account = {
-            "id": "pdd-account",
-            "platform": "pdd",
-            "displayName": "拼多多账号",
-            "profileDir": r"D:\profiles\pdd",
-            "chromePort": 0,
-        }
-
-        account_state = build_account_state(state, account)
-
-        self.assertEqual(account_state["platform"], "pdd")
-        self.assertEqual(account_state["browserEngine"], "edge")
-        self.assertEqual(account_state["chromePath"], r"C:\Chrome\chrome.exe")
-
-    def test_build_account_state_keeps_non_pdd_on_default_browser(self) -> None:
-        state = {"chromePath": r"C:\Chrome\chrome.exe"}
-        account = {
-            "id": "jd-account",
-            "platform": "jd",
-            "displayName": "京东账号",
-            "profileDir": r"D:\profiles\jd",
-            "chromePort": 0,
-        }
-
-        account_state = build_account_state(state, account)
-
-        self.assertEqual(account_state["platform"], "jd")
-        self.assertNotIn("browserEngine", account_state)
 
 
 class BatchCaptureTests(unittest.TestCase):
