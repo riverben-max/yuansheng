@@ -320,6 +320,9 @@ class SidecarApp:
             identity, shop_name = _resolve_douyin_user_info(cookie_header, csrf_token, self.log)
         elif platform == "pdd":
             identity, _ = _resolve_pdd_user_info(cookie_header, self.log)
+        elif platform == "jd":
+            from jd_workload_capture import resolve_jd_pin_from_cookie
+            identity = resolve_jd_pin_from_cookie(cookie_header)
         if identity:
             account["lastKnownLoginAccount"] = identity
             if not str(account.get("loginHint") or "").strip():
@@ -1005,3 +1008,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

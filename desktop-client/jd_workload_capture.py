@@ -245,3 +245,12 @@ def _first_raw(*values: Any) -> Any:
 def _first_text(*values: Any) -> str:
     value = _first_raw(*values)
     return str(value or "").strip()
+
+
+def resolve_jd_pin_from_cookie(cookie: str) -> str:
+    from urllib.parse import unquote
+    for part in str(cookie or "").split(";"):
+        name, sep, val = part.strip().partition("=")
+        if sep and name.strip() == "pin":
+            return unquote(val.strip())
+    return ""
