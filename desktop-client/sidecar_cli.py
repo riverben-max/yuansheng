@@ -323,6 +323,9 @@ class SidecarApp:
         elif platform == "jd":
             from jd_workload_capture import resolve_jd_pin_from_cookie
             identity = resolve_jd_pin_from_cookie(cookie_header)
+        else:
+            # qn: 从 Cookie 的 sn/_nk_/tracknick 提取客服名
+            identity = _resolve_qn_identity_from_cookie(cookie_header)
         if identity:
             account["lastKnownLoginAccount"] = identity
             if not str(account.get("loginHint") or "").strip():
@@ -952,6 +955,20 @@ def _resolve_pdd_user_info(cookie_header: str, log: Callable) -> tuple[str, str]
     except Exception as exc:
         log(f"自动识别拼多多身份失败（不影响 Cookie 保存）：{exc}")
         return "", ""
+
+
+def _resolve_qn_identity_from_cookie(cookie_header: str) -> str:
+    """从千牛 Cookie 中提取客服名（sn/_nk_/tracknick）。"""
+    cookie_values: dict[str, str] = {}
+    for part in str(cookie_header or "").split(";"):
+        name, sep, value = part.strip().partition("=")
+        if sep and name:
+            cookie_values[name.strip()] = value.strip()
+    for key in ("sn", "_nk_", "tracknick", "lgc"):
+        value = str(cookie_values.get(key) or "").strip()
+        if value:
+            return unquote(value)
+    return ""
 
 
 def _parse_cookie_import(raw_text: str) -> tuple[str, str]:

@@ -353,7 +353,8 @@ async function onImportCookie(account) {
   const platform = account.platform || "qn";
   const requestName = platform === "pdd" ? "csReportDetail"
     : platform === "douyin" ? "queryStaffData"
-    : "queryStaffData";
+    : platform === "jd" ? "queryList"
+    : "mtop（任意一个 1.0/?jsv= 开头的请求）";
   try {
     const { value } = await ElMessageBox.prompt(
       `操作步骤：\n1. 在浏览器中打开对应客服数据页面\n2. 按 F12 打开开发者工具 → Network 标签\n3. 刷新页面，找到 ${requestName} 请求\n4. 右键该请求 → Copy → Copy as cURL\n5. 粘贴到下方输入框`,
