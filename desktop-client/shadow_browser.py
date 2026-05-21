@@ -318,7 +318,6 @@ def build_shadow_launch_command(
         "--disable-hang-monitor",
         "--disable-crash-reporter",
         "--no-sandbox",
-        "--single-process",
         "--metrics-recording-only",
         "--no-pings",
         f"--window-position={position}",
