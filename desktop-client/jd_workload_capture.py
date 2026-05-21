@@ -175,7 +175,11 @@ def parse_jd_workload_payload(
     service_pin = str(request_params.get("servicePin") or state.get("lastKnownLoginAccount") or state.get("loginHint") or "").strip()
     login_account = _first_text(state.get("shopName"), state.get("lastKnownLoginAccount"), service_pin)
     record_date = normalize_date_string(row.get("dayStr")) or str(request_params.get("startTime") or "")
-    sub_account = _first_text(row.get("waiter"), row.get("servicePin"), service_pin)
+    sub_account = _first_text(
+        None if str(row.get("waiter") or "").strip() in ("未分配", "unassigned", "") else row.get("waiter"),
+        row.get("servicePin"),
+        service_pin,
+    )
     payload = {
         "loginAccount": login_account,
         "recordDate": record_date,

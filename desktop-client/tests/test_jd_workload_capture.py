@@ -92,7 +92,7 @@ class JdWorkloadCaptureTests(unittest.TestCase):
 
         self.assertEqual(payload["loginAccount"], "京东菠萝店")
         self.assertEqual(payload["recordDate"], "2026-05-12")
-        self.assertEqual(payload["subAccount"], "未分配")
+        self.assertEqual(payload["subAccount"], "if自营菠萝")
         self.assertEqual(payload["consultationCount"], 58)
         self.assertEqual(payload["receiveCount"], 58)
         self.assertIsNone(payload["validReceiveCount"])
