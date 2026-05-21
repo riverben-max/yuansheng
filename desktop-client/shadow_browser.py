@@ -71,6 +71,7 @@ def resolve_chrome_path(config: Mapping[str, Any] | None = None) -> str:
     for key_path in (
         r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
         r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\360ChromeX.exe",
     ):
         registry_path = _read_registry_default(winreg.HKEY_CURRENT_USER, key_path)
         if registry_path and Path(registry_path).exists():
@@ -675,4 +676,5 @@ def _common_chrome_paths() -> list[Path]:
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
         candidates.append(Path(local_app_data) / "Google" / "Chrome" / "Application" / "chrome.exe")
+        candidates.append(Path(local_app_data) / "360ChromeX" / "Chrome" / "Application" / "360ChromeX.exe")
     return candidates
