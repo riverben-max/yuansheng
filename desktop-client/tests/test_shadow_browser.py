@@ -224,6 +224,8 @@ class ShadowBrowserTests(unittest.TestCase):
         self.assertEqual(session.profile_dir, r"D:\shadow-profile")
         self.assertEqual(session.port, 9333)
         self.assertEqual(launch_calls[0][4], shadow_browser.LOGIN_START_URL)
+        self.assertTrue(any("登录窗口启动诊断：准备启动" in item for item in logs))
+        self.assertTrue(any("Chrome 进程已创建" in item for item in logs))
         self.assertTrue(any("登录窗口已打开" in item for item in logs))
 
     def test_launch_shadow_browser_for_login_uses_configured_startup_url(self) -> None:
@@ -278,6 +280,7 @@ class ShadowBrowserTests(unittest.TestCase):
 
         self.assertEqual(launch_calls[0][2], 0)
         self.assertEqual(session.port, 45678)
+        self.assertTrue(any("DevTools 调试端口已就绪" in item for item in logs))
         self.assertTrue(any("端口=45678" in item for item in logs))
 
     def test_launch_shadow_browser_for_login_closes_profile_when_devtools_file_is_missing(self) -> None:

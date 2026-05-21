@@ -11,6 +11,7 @@
         <el-button :disabled="!selectedAccount" type="danger" plain @click="$emit('delete', selectedAccount)">删除选中账户</el-button>
         <el-button :disabled="!selectedAccount || loginBusy" @click="$emit('login', selectedAccount)">登录/重新登录选中账户</el-button>
         <el-button :disabled="!selectedAccount || captureBusy" type="success" @click="$emit('capture', selectedAccount)">采集选中账号</el-button>
+        <el-button :disabled="!selectedAccount" type="warning" plain @click="$emit('import-cookie', selectedAccount)">导入Cookie</el-button>
       </div>
     </div>
 
@@ -36,15 +37,8 @@
           <el-tag effect="light">{{ platformLabel(row.platform) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="shopName" label="店铺名称" width="180" show-overflow-tooltip>
-        <template #default="{ row }">{{ row.shopName || "--" }}</template>
-      </el-table-column>
-      <el-table-column prop="displayName" label="账户备注" width="140" show-overflow-tooltip />
-      <el-table-column prop="loginHint" label="登录识别名" width="160" show-overflow-tooltip />
-      <el-table-column prop="enabled" label="启用" width="72">
-        <template #default="{ row }">
-          <el-tag :type="row.enabled ? 'success' : 'info'" effect="light">{{ row.enabled ? "是" : "否" }}</el-tag>
-        </template>
+      <el-table-column label="登录识别名" min-width="180" show-overflow-tooltip>
+        <template #default="{ row }">{{ loginIdentityLabel(row) }}</template>
       </el-table-column>
       <el-table-column label="Cookie状态" width="116">
         <template #default="{ row }">
@@ -86,6 +80,7 @@ import { ElMessageBox } from "element-plus/es/components/message-box/index.mjs";
 import { platformLabel } from "../lib/platforms.js";
 import {
   filterAccountsByPlatform,
+  loginIdentityLabel,
   summarizeAccounts,
   selectedAccountVisible,
 } from "../lib/accountMatrix.js";
@@ -108,6 +103,7 @@ const emit = defineEmits([
   "delete",
   "login",
   "capture",
+  "import-cookie",
 ]);
 
 const accountTableRef = ref(null);
@@ -163,7 +159,7 @@ function accountLastCaptureAt(account) {
 function accountResultTagType(account) {
   const text = accountResultText(account);
   if (text === "采集成功") return "success";
-  if (text === "上传失败" || text === "平台未配置客服账号") return "warning";
+  if (text === "上传失败" || text === "平台未配置客服账号" || text === "需要补充登录识别名") return "warning";
   if (text === "尚未采集" || text === "采集暂未接入") return "info";
   return "danger";
 }

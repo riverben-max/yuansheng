@@ -38,11 +38,7 @@ export function useAccounts(callSidecar, refreshState, activePlatformFilter) {
     const payload = {
       id: accountDialog.id,
       platform: accountDialog.platform,
-      shopName: accountDialog.shopName,
-      displayName: accountDialog.displayName,
-      loginHint: accountDialog.loginHint,
-      enabled: accountDialog.enabled,
-      shopId: accountDialog.shopId || 0,
+      enabled: true,
     };
     const result = await callSidecar(command, payload);
     if (result?.ok) {

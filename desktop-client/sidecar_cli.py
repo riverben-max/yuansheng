@@ -23,6 +23,7 @@ from direct_api_capture import (
     update_direct_api_cookie,
 )
 from external_capture import LoginRequiredError, capture_with_external_chrome, inspect_existing_shadow_browser_state
+from douyin_workload_capture import capture_douyin_workload
 from jd_workload_capture import capture_jd_workload
 from login_accounts import add_login_account, build_account_state, capture_enabled_accounts, ensure_login_accounts
 from pdd_workload_capture import capture_pdd_workload
@@ -31,6 +32,7 @@ from platform_config import (
     JD_LOGIN_URL,
     PDD_LOGIN_URL,
     QN_LOGIN_URL,
+    is_douyin_login_success_page,
     is_jd_login_success_page,
     is_pdd_login_success_page,
     login_start_url_for_platform,
@@ -121,6 +123,7 @@ class SidecarApp:
         direct_capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]] | None = None,
         jd_capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]] | None = None,
         pdd_capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]] | None = None,
+        douyin_capture_func: Callable[[Mapping[str, Any], Callable[[str], None]], Mapping[str, Any]] | None = None,
         upload_func: Callable[[MutableMapping[str, Any], Mapping[str, Any], str, str], tuple[str, Mapping[str, Any] | None]] | None = None,
     ):
         self.data_dir = data_dir or app_data_dir()
@@ -130,6 +133,7 @@ class SidecarApp:
         self.direct_capture_func = direct_capture_func or capture_with_direct_api
         self.jd_capture_func = jd_capture_func or capture_jd_workload
         self.pdd_capture_func = pdd_capture_func or capture_pdd_workload
+        self.douyin_capture_func = douyin_capture_func or capture_douyin_workload
         self.upload_func = upload_func or upload_payload_with_state
 
     def load_state(self) -> Dict[str, Any]:
@@ -287,6 +291,40 @@ class SidecarApp:
 
         return self.response({"id": account_id})
 
+    def import_cookie(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        state = self.load_state()
+        account_id = str(payload.get("accountId") or payload.get("id") or "")
+        raw_text = str(payload.get("cookieText") or "").strip()
+        if not account_id:
+            raise ValueError("请选择一个登录账号。")
+        if not raw_text:
+            raise ValueError("请粘贴 Cookie 或 cURL 命令内容。")
+        account = self.find_account(state, account_id)
+        if account is None:
+            raise ValueError("登录账户不存在。")
+        cookie_header, csrf_token = _parse_cookie_import(raw_text)
+        if not cookie_header:
+            raise ValueError("未能从输入内容中解析出 Cookie，请检查格式。")
+        now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        account["cookieProtected"] = protect_text(cookie_header)
+        account["cookieUpdatedAt"] = now_text
+        account["loginStatus"] = "已登录"
+        account["lastError"] = ""
+        account["lastFailureReason"] = ""
+        if csrf_token:
+            account["douyinCsrfToken"] = csrf_token
+        # 自动识别登录身份
+        identity, shop_name = _resolve_douyin_user_info(cookie_header, csrf_token, self.log)
+        if identity:
+            account["lastKnownLoginAccount"] = identity
+            if not str(account.get("loginHint") or "").strip():
+                account["loginHint"] = identity
+        if shop_name and not str(account.get("shopName") or "").strip():
+            account["shopName"] = shop_name
+        self.save_state(state)
+        self.log(f"已导入 Cookie（长度 {len(cookie_header)}），csrf-token {'已保存' if csrf_token else '未提供'}，识别身份：{identity or '未识别'}。")
+        return self.response({"ok": True, "state": self.public_state(state)})
+
     def start_login(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         with self.exclusive_operation_lock():
             state = self.load_state()
@@ -416,7 +454,10 @@ class SidecarApp:
         account["cookieProtected"] = protect_text(cookie_header)
         account["cookieUpdatedAt"] = now_text
         account["cookieSummary"] = format_cookie_diagnostics(cookie_header)
-        account["lastKnownLoginAccount"] = _resolve_login_identity(browser_state, cookie_header)
+        login_identity = _resolve_login_identity(browser_state, cookie_header)
+        account["lastKnownLoginAccount"] = login_identity
+        if login_identity and not str(account.get("loginHint") or "").strip():
+            account["loginHint"] = login_identity
         account["loginStatus"] = "已登录"
         account["lastFailureReason"] = ""
         account["lastError"] = ""
@@ -509,7 +550,7 @@ class SidecarApp:
                     capture_func=self.direct_capture_func,
                     upload_func=self.upload_func,
                     log=self.log,
-                    capture_adapters=default_capture_adapters(self.direct_capture_func, self.jd_capture_func, self.pdd_capture_func),
+                    capture_adapters=default_capture_adapters(self.direct_capture_func, self.jd_capture_func, self.pdd_capture_func, self.douyin_capture_func),
                 )
                 state["lastRunAt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self._trim_upload_history(state)
@@ -543,7 +584,7 @@ class SidecarApp:
             capture_func=self.direct_capture_func,
             upload_func=self.upload_func,
             log=self.log,
-            capture_adapters=default_capture_adapters(self.direct_capture_func, self.jd_capture_func, self.pdd_capture_func),
+            capture_adapters=default_capture_adapters(self.direct_capture_func, self.jd_capture_func, self.pdd_capture_func, self.douyin_capture_func),
         )
         self.save_state(state)
         self.emit(event("status", status="待命", danger=False))
@@ -715,6 +756,7 @@ COMMANDS = {
     "account_create": SidecarApp.account_create,
     "account_update": SidecarApp.account_update,
     "account_delete": SidecarApp.account_delete,
+    "import_cookie": SidecarApp.import_cookie,
     "check_update": SidecarApp.check_update,
     "shutdown": SidecarApp.shutdown,
 }
@@ -739,6 +781,9 @@ def _browser_state_is_login_ready(
         page_url = str(browser_state.get("pageUrl") or browser_state.get("url") or "").strip()
         flags = _pdd_cookie_flags(_cookie_names(cookie_header))
         return bool(is_pdd_login_success_page(page_url) and all(flags.values()))
+    if normalize_platform(platform) == "douyin":
+        page_url = str(browser_state.get("pageUrl") or browser_state.get("url") or "").strip()
+        return bool(is_douyin_login_success_page(page_url) and cookie_header)
     return bool(browser_state.get("loggedIn") is True and _cookie_summary_is_login_ready(cookie_summary))
 
 
@@ -874,6 +919,39 @@ def _resolve_login_identity(browser_state: Mapping[str, Any], cookie_header: str
         if value:
             return unquote(value)
     return ""
+
+
+def _resolve_douyin_user_info(cookie_header: str, csrf_token: str, log: Callable) -> tuple[str, str]:
+    """调用抖店 currentuser 接口，返回 (客服名, 店铺名)。"""
+    try:
+        from douyin_workload_capture import fetch_douyin_current_user
+        user_data = fetch_douyin_current_user(cookie_header, csrf_token=csrf_token)
+        screen_name = str((user_data.get("CustomerServiceInfo") or {}).get("screen_name") or "").strip()
+        shop_name = str(user_data.get("ShopName") or "").strip()
+        return screen_name or shop_name, shop_name
+    except Exception as exc:
+        log(f"自动识别抖店身份失败（不影响 Cookie 保存）：{exc}")
+        return "", ""
+
+
+def _parse_cookie_import(raw_text: str) -> tuple[str, str]:
+    """从 cURL 命令或纯 Cookie 字符串中提取 Cookie header 和 csrf-token。"""
+    import re
+    cookie_header = ""
+    csrf_token = ""
+    # 尝试从 cURL 格式提取
+    cookie_match = re.search(r"-H\s+['\"]cookie:\s*([^'\"]+)['\"]", raw_text, re.IGNORECASE)
+    if cookie_match:
+        cookie_header = cookie_match.group(1).strip()
+    csrf_match = re.search(r"-H\s+['\"]x-secsdk-csrf-token:\s*([^'\"]+)['\"]", raw_text, re.IGNORECASE)
+    if csrf_match:
+        csrf_token = csrf_match.group(1).strip()
+    # 如果不是 cURL 格式，当作纯 Cookie 字符串
+    if not cookie_header:
+        # 检查是否含有 key=value; 格式的 Cookie
+        if "=" in raw_text and (";" in raw_text or raw_text.count("=") == 1):
+            cookie_header = raw_text.strip()
+    return cookie_header, csrf_token
 
 
 def parse_payload(text: str | None) -> Dict[str, Any]:

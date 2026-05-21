@@ -12,9 +12,9 @@ import {
   platformFilterOptions,
 } from "./platforms.js";
 
-test("PLATFORMS contains qn, jd and pdd in display order", () => {
-  assert.equal(PLATFORMS.length, 3);
-  assert.deepEqual(PLATFORMS.map((p) => p.value), ["qn", "jd", "pdd"]);
+test("PLATFORMS contains qn, jd, pdd and douyin in display order", () => {
+  assert.equal(PLATFORMS.length, 4);
+  assert.deepEqual(PLATFORMS.map((p) => p.value), ["qn", "jd", "pdd", "douyin"]);
 });
 
 test("DEFAULT_PLATFORM is qn", () => {
@@ -25,6 +25,7 @@ test("normalizePlatform returns known platform or defaults to qn", () => {
   assert.equal(normalizePlatform("qn"), "qn");
   assert.equal(normalizePlatform("jd"), "jd");
   assert.equal(normalizePlatform("pdd"), "pdd");
+  assert.equal(normalizePlatform("douyin"), "douyin");
   assert.equal(normalizePlatform(undefined), "qn");
   assert.equal(normalizePlatform(null), "qn");
   assert.equal(normalizePlatform("bad"), "qn");
@@ -34,6 +35,7 @@ test("platformLabel returns Chinese label", () => {
   assert.equal(platformLabel("qn"), "千牛");
   assert.equal(platformLabel("jd"), "京东");
   assert.equal(platformLabel("pdd"), "拼多多");
+  assert.equal(platformLabel("douyin"), "抖店");
   assert.equal(platformLabel(undefined), "千牛");
   assert.equal(platformLabel("bad"), "千牛");
 });
@@ -50,6 +52,7 @@ test("platformSupportsCapture checks capture support flag", () => {
   assert.equal(platformSupportsCapture("qn"), true);
   assert.equal(platformSupportsCapture("jd"), true);
   assert.equal(platformSupportsCapture("pdd"), true);
+  assert.equal(platformSupportsCapture("douyin"), true);
   // unknown platforms normalize to qn, inheriting its capture support
   assert.equal(platformSupportsCapture("bad"), true);
 });
@@ -59,6 +62,7 @@ test("platformList returns value-label pairs", () => {
     { value: "qn", label: "千牛" },
     { value: "jd", label: "京东" },
     { value: "pdd", label: "拼多多" },
+    { value: "douyin", label: "抖店" },
   ]);
 });
 
@@ -68,5 +72,6 @@ test("platformFilterOptions includes 'all' option", () => {
     { value: "qn", label: "千牛" },
     { value: "jd", label: "京东" },
     { value: "pdd", label: "拼多多" },
+    { value: "douyin", label: "抖店" },
   ]);
 });

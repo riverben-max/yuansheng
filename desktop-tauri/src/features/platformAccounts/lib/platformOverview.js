@@ -87,6 +87,7 @@ export function accountResultText(account) {
   if (status === "采集失败") return "采集失败";
   const result = String(account?.lastResult || "").trim();
   if (result === "京东采集暂未接入") return "采集暂未接入";
+  if (result.includes("补充登录识别名") || result.includes("未匹配到目标客服")) return "需要补充登录识别名";
   if (result) return "采集成功";
   return "尚未采集";
 }

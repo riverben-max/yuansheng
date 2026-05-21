@@ -1305,6 +1305,7 @@ class SidecarAccountTests(unittest.TestCase):
         self.assertEqual(account["cookieProtected"], protected_cookie)
         self.assertEqual(account["loginStatus"], "已登录")
         self.assertEqual(account["lastKnownLoginAccount"], "远盛电商:林志玲")
+        self.assertEqual(account["loginHint"], "远盛电商:林志玲")
         self.assertIn("_m_h5_tk=有", account["cookieSummary"])
         self.assertTrue(account["cookieUpdatedAt"])
         self.assertEqual(shutdown_calls, [(str(data_dir / "profiles" / "default"), 45678)])

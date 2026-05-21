@@ -48,6 +48,10 @@ export function defaultPlatformForNewAccount(filter) {
   return ACCOUNT_PLATFORMS.has(normalized) ? normalized : DEFAULT_PLATFORM;
 }
 
+export function loginIdentityLabel(account) {
+  return String(account?.loginHint || account?.lastKnownLoginAccount || "").trim() || "--";
+}
+
 export function selectedAccountVisible(account, filter) {
   if (!account) return false;
   return accountMatchesPlatformFilter(account, filter);

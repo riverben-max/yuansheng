@@ -5,6 +5,7 @@ import {
   accountMatchesPlatformFilter,
   defaultPlatformForNewAccount,
   filterAccountsByPlatform,
+  loginIdentityLabel,
   selectedAccountVisible,
   summarizeAccounts,
 } from "./accountMatrix.js";
@@ -46,4 +47,10 @@ test("detects whether selected account remains visible after filter change", () 
 
 test("normalizes unsupported filters to all-matching behavior for safety", () => {
   assert.equal(accountMatchesPlatformFilter(accounts[0], "bad"), true);
+});
+
+test("shows detected login identity when manual hint is empty", () => {
+  assert.equal(loginIdentityLabel({ loginHint: "manual-name", lastKnownLoginAccount: "detected-name" }), "manual-name");
+  assert.equal(loginIdentityLabel({ loginHint: "", lastKnownLoginAccount: "detected-name" }), "detected-name");
+  assert.equal(loginIdentityLabel({}), "--");
 });

@@ -16,12 +16,16 @@ def default_capture_adapters(
     qn_capture_func: CaptureAdapter,
     jd_capture_func: CaptureAdapter,
     pdd_capture_func: CaptureAdapter,
+    douyin_capture_func: CaptureAdapter | None = None,
 ) -> dict[str, CaptureAdapter]:
-    return {
+    adapters: dict[str, CaptureAdapter] = {
         "qn": qn_capture_func,
         "jd": jd_capture_func,
         "pdd": pdd_capture_func,
     }
+    if douyin_capture_func is not None:
+        adapters["douyin"] = douyin_capture_func
+    return adapters
 
 
 def select_capture_adapter(platform: object, adapters: Mapping[str, CaptureAdapter]) -> CaptureAdapter:

@@ -202,6 +202,9 @@ def build_account_state(state: Mapping[str, Any], account: Mapping[str, Any]) ->
     login_hint = str(account.get("lastKnownLoginAccount") or account.get("loginHint") or "").strip()
     if login_hint:
         account_state["lastKnownLoginAccount"] = login_hint
+    douyin_csrf = str(account.get("douyinCsrfToken") or "").strip()
+    if douyin_csrf:
+        account_state["douyinCsrfToken"] = douyin_csrf
     return account_state
 
 

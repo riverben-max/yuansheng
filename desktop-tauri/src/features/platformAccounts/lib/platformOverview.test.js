@@ -1,7 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildPlatformSummaries, isAccountCaptureReady, platformActionState, platformSummaryText, uploadFailureText } from "./platformOverview.js";
+import {
+  accountResultText,
+  buildPlatformSummaries,
+  isAccountCaptureReady,
+  platformActionState,
+  platformSummaryText,
+  uploadFailureText,
+} from "./platformOverview.js";
 
 const accounts = [
   {
@@ -48,7 +55,7 @@ const accounts = [
 test("builds fixed qn, jd and pdd platform summaries and treats missing platform as qn", () => {
   const summaries = buildPlatformSummaries(accounts);
 
-  assert.deepEqual(summaries.map((item) => item.platform), ["qn", "jd", "pdd"]);
+  assert.deepEqual(summaries.map((item) => item.platform), ["qn", "jd", "pdd", "douyin"]);
   assert.equal(summaries[0].accountCount, 2);
   assert.equal(summaries[0].enabledCount, 2);
   assert.equal(summaries[0].loggedInCount, 1);
@@ -90,6 +97,22 @@ test("shows missing platform employee account instead of generic upload failure"
   assert.equal(jdSummary.latestResultText, "平台未配置客服账号");
   assert.equal(uploadFailureText("服务端上传失败：未找到员工账号映射：subAccount=未分配"), "平台未配置客服账号");
   assert.equal(uploadFailureText("服务端上传失败：连接超时"), "上传失败");
+});
+
+test("shows missing login identity when stale last result requires account matching", () => {
+  const account = {
+    id: "pdd-missing-identity",
+    platform: "pdd",
+    enabled: true,
+    loginStatus: "已登录",
+    cookieStatus: "已保存",
+    lastCaptureAt: "2026-05-20 14:49:42",
+    lastResult: "拼多多接口返回多个客服，但当前账号未匹配到目标客服，请补充登录识别名。",
+  };
+  const [, , pddSummary] = buildPlatformSummaries([account]);
+
+  assert.equal(accountResultText(account), "需要补充登录识别名");
+  assert.equal(pddSummary.latestResultText, "需要补充登录识别名");
 });
 
 test("formats compact platform summary text", () => {

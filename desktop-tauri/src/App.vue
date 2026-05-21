@@ -115,6 +115,7 @@
           @delete="onDeleteAccount"
           @login="onStartLogin"
           @capture="captureAccount"
+          @import-cookie="onImportCookie"
         />
       </el-tab-pane>
     </el-tabs>
@@ -345,6 +346,25 @@ async function onStartLogin(account) {
 async function onDeleteAccount(account) {
   await deleteAccount(account);
   selectedAccount.value = null;
+}
+
+async function onImportCookie(account) {
+  if (!account) return;
+  try {
+    const { value } = await ElMessageBox.prompt(
+      "操作步骤：\n1. 在浏览器中打开飞鸽客服数据页面\n2. 按 F12 打开开发者工具 → Network 标签\n3. 刷新页面，找到 queryStaffData 请求\n4. 右键该请求 → Copy → Copy as cURL\n5. 粘贴到下方输入框",
+      "导入 Cookie",
+      { inputType: "textarea", confirmButtonText: "导入", cancelButtonText: "取消" },
+    );
+    if (!value?.trim()) return;
+    const result = await callSidecar("import_cookie", { accountId: account.id, cookieText: value.trim() });
+    if (result?.ok) {
+      ElMessage.success("Cookie 导入成功");
+      if (result.data?.state) applyState(result.data.state);
+    }
+  } catch {
+    // 用户取消
+  }
 }
 
 // ── checkUpdate ──

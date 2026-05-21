@@ -162,37 +162,68 @@ def show_shadow_browser_for_login(config: Mapping[str, Any], log: Callable[[str]
 
 
 def launch_shadow_browser_for_login(config: Mapping[str, Any], log: Callable[[str], None]) -> ShadowBrowserSession:
-    chrome_path = resolve_chrome_path(config)
+    started_at = time.perf_counter()
     port = _resolve_launch_port(config)
     profile_dir = _resolve_profile_dir(config)
+    startup_url = _resolve_login_startup_url(config)
+    log(
+        "登录窗口启动诊断：准备启动，"
+        f"profile={profile_dir.name or '--'}，请求端口={port}，url={startup_url}。"
+    )
+    chrome_path = resolve_chrome_path(config)
+    log(f"登录窗口启动诊断：Chrome 路径已解析，耗时={_elapsed_ms(started_at)}ms。")
     profile_dir.mkdir(parents=True, exist_ok=True)
-    kill_drission_temp_browsers(port, log)
+    cleanup_started_at = time.perf_counter()
+    killed_temp_count = kill_drission_temp_browsers(port, log)
+    log(
+        "登录窗口启动诊断：临时浏览器清理完成，"
+        f"清理数量={killed_temp_count}，耗时={_elapsed_ms(cleanup_started_at)}ms，"
+        f"总耗时={_elapsed_ms(started_at)}ms。"
+    )
 
     if port > 0 and _port_is_open(port):
+        port_cleanup_started_at = time.perf_counter()
         shadow_processes = _find_shadow_processes(profile_dir, port)
         if shadow_processes:
             _kill_process_list(shadow_processes, log)
             if not _wait_for_port_close(port, timeout=6):
                 raise ShadowBrowserError(f"影子浏览器端口 {port} 清理失败，请稍后重试。")
+            log(
+                "登录窗口启动诊断：残留端口清理完成，"
+                f"端口={port}，耗时={_elapsed_ms(port_cleanup_started_at)}ms，"
+                f"总耗时={_elapsed_ms(started_at)}ms。"
+            )
         else:
             raise PortOccupiedError(f"调试端口 {port} 已被其他程序占用，无法启动登录窗口。")
 
     _remove_devtools_active_port(profile_dir)
+    launch_started_at = time.perf_counter()
     process = _launch_shadow_browser(
         chrome_path=chrome_path,
         profile_dir=profile_dir,
         port=port,
         visible=True,
-        startup_url=_resolve_login_startup_url(config),
+        startup_url=startup_url,
+    )
+    log(
+        "登录窗口启动诊断：Chrome 进程已创建，"
+        f"PID={process.pid}，耗时={_elapsed_ms(launch_started_at)}ms，"
+        f"总耗时={_elapsed_ms(started_at)}ms。"
     )
     runtime_port = port
     if port == 0:
+        devtools_started_at = time.perf_counter()
         endpoint = _wait_for_devtools_active_port(profile_dir)
         if endpoint is None:
             _kill_shadow_processes(profile_dir, 0, log)
             raise ShadowBrowserError("登录窗口启动异常：Chrome 未生成 DevToolsActivePort。")
         runtime_port = endpoint.port
-    log(f"登录窗口已打开（PID={process.pid}，端口={runtime_port}）。")
+        log(
+            "登录窗口启动诊断：DevTools 调试端口已就绪，"
+            f"端口={runtime_port}，耗时={_elapsed_ms(devtools_started_at)}ms，"
+            f"总耗时={_elapsed_ms(started_at)}ms。"
+        )
+    log(f"登录窗口已打开（PID={process.pid}，端口={runtime_port}，总耗时={_elapsed_ms(started_at)}ms）。")
     return ShadowBrowserSession(
         page=None,
         chrome_path=chrome_path,
@@ -202,6 +233,10 @@ def launch_shadow_browser_for_login(config: Mapping[str, Any], log: Callable[[st
         launched=True,
         restarted=False,
     )
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return max(0, int((time.perf_counter() - started_at) * 1000))
 
 
 def hide_shadow_browser_window(page: Any, log: Callable[[str], None] | None = None) -> bool:
