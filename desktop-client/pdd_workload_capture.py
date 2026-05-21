@@ -252,3 +252,29 @@ def _first_text(*values: Any) -> str:
         if text:
             return text
     return ""
+
+
+def fetch_pdd_current_user(cookie: str, client: Any = None) -> Dict[str, Any]:
+    """调用 csReportDetail 接口获取当前客服名（使用昨天日期）。"""
+    request_client = client or httpx
+    current_date = datetime.now(SHANGHAI_TZ).date()
+    record_date = current_date - timedelta(days=1)
+    record_start = datetime(record_date.year, record_date.month, record_date.day, tzinfo=SHANGHAI_TZ)
+    ts = int(record_start.timestamp())
+    headers = {
+        "Cookie": cookie,
+        "User-Agent": DEFAULT_USER_AGENT,
+        "Accept": "*/*",
+        "Referer": PDD_WORKLOAD_REFERER,
+    }
+    try:
+        resp = request_client.get(PDD_REPORT_URL, params={"starttime": ts, "endtime": ts}, headers=headers, timeout=10)
+        data = resp.json() if hasattr(resp, "json") else {}
+    except Exception:
+        return {}
+    if not isinstance(data, Mapping) or data.get("success") is not True:
+        return {}
+    rows = (data.get("result") or {}).get("data") or []
+    if rows and isinstance(rows[0], Mapping):
+        return {"cs_name": str(rows[0].get("cs_name") or "").strip(), "mms_uid": rows[0].get("mms_uid")}
+    return {}

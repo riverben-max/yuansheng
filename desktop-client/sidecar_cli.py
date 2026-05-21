@@ -314,7 +314,12 @@ class SidecarApp:
         if csrf_token:
             account["douyinCsrfToken"] = csrf_token
         # 自动识别登录身份
-        identity, shop_name = _resolve_douyin_user_info(cookie_header, csrf_token, self.log)
+        platform = normalize_platform(account.get("platform"))
+        identity, shop_name = "", ""
+        if platform == "douyin":
+            identity, shop_name = _resolve_douyin_user_info(cookie_header, csrf_token, self.log)
+        elif platform == "pdd":
+            identity, _ = _resolve_pdd_user_info(cookie_header, self.log)
         if identity:
             account["lastKnownLoginAccount"] = identity
             if not str(account.get("loginHint") or "").strip():
@@ -934,21 +939,38 @@ def _resolve_douyin_user_info(cookie_header: str, csrf_token: str, log: Callable
         return "", ""
 
 
+def _resolve_pdd_user_info(cookie_header: str, log: Callable) -> tuple[str, str]:
+    """调用拼多多 csReportDetail 接口，返回 (客服名, 空)。"""
+    try:
+        from pdd_workload_capture import fetch_pdd_current_user
+        user_data = fetch_pdd_current_user(cookie_header)
+        cs_name = str(user_data.get("cs_name") or "").strip()
+        return cs_name, ""
+    except Exception as exc:
+        log(f"自动识别拼多多身份失败（不影响 Cookie 保存）：{exc}")
+        return "", ""
+
+
 def _parse_cookie_import(raw_text: str) -> tuple[str, str]:
     """从 cURL 命令或纯 Cookie 字符串中提取 Cookie header 和 csrf-token。"""
     import re
     cookie_header = ""
     csrf_token = ""
-    # 尝试从 cURL 格式提取
+    # cURL -H 'cookie: ...' 格式
     cookie_match = re.search(r"-H\s+['\"]cookie:\s*([^'\"]+)['\"]", raw_text, re.IGNORECASE)
     if cookie_match:
         cookie_header = cookie_match.group(1).strip()
+    # cURL -b '...' 格式（PDD 使用此格式）
+    if not cookie_header:
+        b_match = re.search(r"\s-b\s+['\"]([^'\"]+)['\"]", raw_text)
+        if b_match:
+            cookie_header = b_match.group(1).strip()
+    # x-secsdk-csrf-token（抖店）
     csrf_match = re.search(r"-H\s+['\"]x-secsdk-csrf-token:\s*([^'\"]+)['\"]", raw_text, re.IGNORECASE)
     if csrf_match:
         csrf_token = csrf_match.group(1).strip()
     # 如果不是 cURL 格式，当作纯 Cookie 字符串
     if not cookie_header:
-        # 检查是否含有 key=value; 格式的 Cookie
         if "=" in raw_text and (";" in raw_text or raw_text.count("=") == 1):
             cookie_header = raw_text.strip()
     return cookie_header, csrf_token
