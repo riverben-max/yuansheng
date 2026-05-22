@@ -635,6 +635,28 @@ class SidecarApp:
         self.emit(event("status", status="待命", danger=False))
         return self.response({"batch": True, "results": results, "state": self.public_state(state)})
 
+    def capture_account_direct(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        """直接用已保存的 Cookie 采集（跳过浏览器刷新，适合每天手动导入 cURL 后使用）。"""
+        state = self.load_state()
+        account_id = str(payload.get("accountId") or payload.get("id") or "")
+        accounts = ensure_login_accounts(state, self.data_dir)
+        selected = [item for item in accounts if str(item.get("id") or "") == account_id]
+        if not selected:
+            raise ValueError("登录账户不存在。")
+        self.emit(event("status", status="采集中", danger=False))
+        results = capture_enabled_accounts(
+            state,
+            selected,
+            reason=str(payload.get("reason") or "手动直接采集"),
+            capture_func=self.direct_capture_func,
+            upload_func=self.upload_func,
+            log=self.log,
+            capture_adapters=default_capture_adapters(self.direct_capture_func, self.jd_capture_func, self.pdd_capture_func, self.douyin_capture_func),
+        )
+        self.save_state(state)
+        self.emit(event("status", status="待命", danger=False))
+        return self.response({"batch": True, "results": results, "state": self.public_state(state)})
+
     def check_update(self, _payload: Mapping[str, Any] | None = None) -> Dict[str, Any]:
         state = self.load_state()
         update_url = str(state.get("updateCheckUrl") or "").strip()
@@ -798,6 +820,7 @@ COMMANDS = {
     "check_login": SidecarApp.check_login,
     "capture_all": SidecarApp.capture_all,
     "capture_account": SidecarApp.capture_account,
+    "capture_account_direct": SidecarApp.capture_account_direct,
     "account_create": SidecarApp.account_create,
     "account_update": SidecarApp.account_update,
     "account_delete": SidecarApp.account_delete,

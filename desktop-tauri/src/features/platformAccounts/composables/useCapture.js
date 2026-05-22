@@ -48,5 +48,16 @@ export function useCapture(callSidecar, refreshState, applyState) {
     return { blocked: false };
   }
 
-  return { captureBusy, captureAll, captureAccount, runCapture };
+  async function captureAccountDirect(account) {
+    if (captureBusy.value) return { blocked: true, hint: "采集进行中，请稍后再试" };
+    captureBusy.value = true;
+    try {
+      await runCapture("capture_account_direct", { accountId: account.id });
+    } finally {
+      captureBusy.value = false;
+    }
+    return { blocked: false };
+  }
+
+  return { captureBusy, captureAll, captureAccount, captureAccountDirect, runCapture };
 }

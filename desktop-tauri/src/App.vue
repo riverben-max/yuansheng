@@ -113,6 +113,7 @@
           @edit="openAccountDialog"
           @delete="onDeleteAccount"
           @capture="captureAccount"
+          @capture-direct="captureAccountDirect"
           @import-cookie="onImportCookie"
         />
       </el-tab-pane>
@@ -176,7 +177,7 @@ async function callSidecar(command, payload = {}, options = {}) {
 const { state, settings, accounts, saving, applyState, refreshState, saveSettings } = useSettings(callSidecar);
 const { runtimeStatus, statusDanger,
         syncRuntimeStatusFromAccounts } = useLoginPolling(callSidecar, refreshState, accounts);
-const { captureBusy, captureAll, captureAccount } = useCapture(callSidecar, refreshState, applyState);
+const { captureBusy, captureAll, captureAccount, captureAccountDirect } = useCapture(callSidecar, refreshState, applyState);
 const { accountDialog, selectedAccount, openAccountDialog, saveAccount, deleteAccount } =
   useAccounts(callSidecar, refreshState, activePlatformFilter);
 

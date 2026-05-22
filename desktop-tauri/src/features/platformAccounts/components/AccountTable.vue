@@ -64,6 +64,7 @@
         <template #default="{ row }">
           <div class="row-actions">
             <el-button size="small" type="warning" plain @click="$emit('import-cookie', row)">导入</el-button>
+            <el-button v-if="row.platform === 'qn' || !row.platform" size="small" type="primary" plain :disabled="captureBusy" @click="$emit('capture-direct', row)">直采</el-button>
             <el-button size="small" type="success" plain :disabled="captureBusy" @click="$emit('capture', row)">采集</el-button>
             <el-button size="small" type="danger" plain @click="$emit('delete', row)">删除</el-button>
           </div>
@@ -100,6 +101,7 @@ const emit = defineEmits([
   "edit",
   "delete",
   "capture",
+  "capture-direct",
   "import-cookie",
 ]);
 
