@@ -89,6 +89,7 @@ def _load_cookie(state: Mapping[str, Any]) -> str:
 
 
 def _launch_browser(chrome_path: str, profile_dir: Path) -> subprocess.Popen:
+    _ensure_port_free()
     cmd = [
         chrome_path,
         f"--user-data-dir={profile_dir}",
@@ -106,35 +107,68 @@ def _launch_browser(chrome_path: str, profile_dir: Path) -> subprocess.Popen:
     )
 
 
+def _ensure_port_free() -> None:
+    """确保 DEBUG_PORT 没被旧进程占用。"""
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        result = sock.connect_ex(("127.0.0.1", DEBUG_PORT))
+        if result == 0:
+            # 端口被占，杀掉占用它的进程
+            sock.close()
+            try:
+                import psutil
+                for conn in psutil.net_connections(kind="tcp"):
+                    if conn.laddr.port == DEBUG_PORT and conn.pid:
+                        try:
+                            psutil.Process(conn.pid).kill()
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+                time.sleep(2)
+            except ImportError:
+                pass
+        else:
+            sock.close()
+    except Exception:
+        sock.close()
+
+
 def _read_cookies_via_devtools() -> str:
     """通过 Chrome DevTools Protocol 读取所有 taobao.com 域的 Cookie。"""
     try:
         import websocket
-        # 使用 browser-level WebSocket（不依赖具体页面）
-        version_url = f"http://127.0.0.1:{DEBUG_PORT}/json/version"
-        req = urllib.request.Request(version_url)
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            version_info = json.loads(resp.read().decode("utf-8"))
-        browser_ws = version_info.get("webSocketDebuggerUrl", "")
-        if not browser_ws:
-            return ""
-
-        ws = websocket.create_connection(browser_ws, timeout=15)
-        ws.send(json.dumps({"id": 1, "method": "Storage.getCookies"}))
-        result = json.loads(ws.recv())
-        ws.close()
-
-        cookies = result.get("result", {}).get("cookies", [])
-        parts = []
-        for c in cookies:
-            domain = c.get("domain", "")
-            if "taobao.com" in domain or "alicdn.com" in domain:
-                parts.append(f"{c['name']}={c['value']}")
-        return "; ".join(parts)
     except ImportError:
         return ""
-    except Exception:
-        return ""
+
+    # 重试最多 3 次（等端口就绪）
+    for attempt in range(3):
+        try:
+            version_url = f"http://127.0.0.1:{DEBUG_PORT}/json/version"
+            req = urllib.request.Request(version_url)
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                version_info = json.loads(resp.read().decode("utf-8"))
+            browser_ws = version_info.get("webSocketDebuggerUrl", "")
+            if not browser_ws:
+                time.sleep(2)
+                continue
+
+            ws = websocket.create_connection(browser_ws, timeout=10)
+            ws.send(json.dumps({"id": 1, "method": "Storage.getCookies"}))
+            result = json.loads(ws.recv())
+            ws.close()
+
+            cookies = result.get("result", {}).get("cookies", [])
+            parts = []
+            for c in cookies:
+                domain = c.get("domain", "")
+                if "taobao.com" in domain or "alicdn.com" in domain:
+                    parts.append(f"{c['name']}={c['value']}")
+            if parts:
+                return "; ".join(parts)
+            time.sleep(2)
+        except Exception:
+            time.sleep(3)
+    return ""
 
 
 def _kill_browser(process: subprocess.Popen, log: Callable[[str], None]) -> None:
