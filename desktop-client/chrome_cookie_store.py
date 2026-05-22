@@ -60,12 +60,20 @@ def _cookies_db_path(profile_dir: Path) -> Path:
 
 def inject_cookies_to_profile(profile_dir: Path, cookie_header: str, domain: str = ".taobao.com") -> int:
     """将 Cookie header 字符串写入 Chrome profile 的 Cookies 数据库。返回写入条数。"""
+    import shutil
+
     cookies = _parse_cookie_header(cookie_header)
     if not cookies:
         return 0
 
     db_path = _cookies_db_path(profile_dir)
+    # 确保目录存在，删除旧的损坏文件
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    for f in db_path.parent.glob("Cookies*"):
+        try:
+            f.unlink()
+        except OSError:
+            pass
 
     now = _now_chrome_utc()
     expires = now + _DEFAULT_EXPIRE_DAYS * 24 * 3600 * 1_000_000
@@ -73,7 +81,6 @@ def inject_cookies_to_profile(profile_dir: Path, cookie_header: str, domain: str
     conn = sqlite3.connect(str(db_path))
     c = conn.cursor()
     c.execute(_CREATE_TABLE_SQL)
-    # 删除同域名旧 Cookie
     c.execute("DELETE FROM cookies WHERE host_key = ?", (domain,))
     for name, value in cookies:
         c.execute(
