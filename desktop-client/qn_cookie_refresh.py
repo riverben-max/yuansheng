@@ -89,6 +89,7 @@ def _launch_browser(chrome_path: str, profile_dir: Path) -> subprocess.Popen:
         chrome_path,
         f"--user-data-dir={profile_dir}",
         f"--remote-debugging-port={DEBUG_PORT}",
+        "--remote-allow-origins=*",
     ] + _LAUNCH_FLAGS + [QN_REFRESH_URL]
     creationflags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     return subprocess.Popen(
@@ -104,45 +105,29 @@ def _launch_browser(chrome_path: str, profile_dir: Path) -> subprocess.Popen:
 def _read_cookies_via_devtools() -> str:
     """通过 Chrome DevTools Protocol 读取所有 taobao.com 域的 Cookie。"""
     try:
-        url = f"http://127.0.0.1:{DEBUG_PORT}/json"
-        req = urllib.request.Request(url)
+        import websocket
+        # 使用 browser-level WebSocket（不依赖具体页面）
+        version_url = f"http://127.0.0.1:{DEBUG_PORT}/json/version"
+        req = urllib.request.Request(version_url)
         with urllib.request.urlopen(req, timeout=5) as resp:
-            pages = json.loads(resp.read().decode("utf-8"))
-        if not pages:
-            return ""
-        # 用第一个页面的 ws 地址通过 HTTP 接口获取 cookie
-        # CDP 的 Network.getAllCookies 需要 WebSocket，用 /json/protocol 太复杂
-        # 简单方案：用 CDP HTTP endpoint 直接发命令
-        ws_url = pages[0].get("webSocketDebuggerUrl", "")
-        if not ws_url:
-            return ""
-        # 用 HTTP 发 CDP 命令获取 Cookie
-        browser_url = f"http://127.0.0.1:{DEBUG_PORT}/json/version"
-        with urllib.request.urlopen(browser_url, timeout=5) as resp:
             version_info = json.loads(resp.read().decode("utf-8"))
         browser_ws = version_info.get("webSocketDebuggerUrl", "")
         if not browser_ws:
             return ""
-        # 通过简单 HTTP 方式：直接用 page 的 evaluate 执行 document.cookie
-        page_id = pages[0].get("id", "")
-        eval_url = f"http://127.0.0.1:{DEBUG_PORT}/json/evaluate?id={page_id}"
-        # 更简单：直接用 requests 到 CDP endpoint
-        # 最简单方案：用 websocket-free 的方式 - 读 DevTools 的 /json/protocol 不行
-        # 真正简单的方案：通过页面执行 JS 获取 cookie
-        import websocket
-        ws = websocket.create_connection(ws_url, timeout=5)
-        ws.send(json.dumps({"id": 1, "method": "Network.getAllCookies"}))
+
+        ws = websocket.create_connection(browser_ws, timeout=15)
+        ws.send(json.dumps({"id": 1, "method": "Storage.getCookies"}))
         result = json.loads(ws.recv())
         ws.close()
+
         cookies = result.get("result", {}).get("cookies", [])
         parts = []
         for c in cookies:
             domain = c.get("domain", "")
-            if ".taobao.com" in domain or "taobao.com" in domain:
+            if "taobao.com" in domain or "alicdn.com" in domain:
                 parts.append(f"{c['name']}={c['value']}")
         return "; ".join(parts)
     except ImportError:
-        # websocket 库不可用，回退到 SQLite 读取
         return ""
     except Exception:
         return ""
