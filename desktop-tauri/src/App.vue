@@ -105,7 +105,6 @@
           :accounts="accounts"
           :activePlatformFilter="activePlatformFilter"
           :platformFilterOptions="platformFilterOptions()"
-          :loginBusy="loginBusy"
           :captureBusy="captureBusy"
           :selectedAccount="selectedAccount"
           @update:activePlatformFilter="activePlatformFilter = $event"
@@ -113,7 +112,6 @@
           @create="openAccountDialog()"
           @edit="openAccountDialog"
           @delete="onDeleteAccount"
-          @login="onStartLogin"
           @capture="captureAccount"
           @import-cookie="onImportCookie"
         />
@@ -176,9 +174,7 @@ async function callSidecar(command, payload = {}, options = {}) {
 
 // ── Composables ──
 const { state, settings, accounts, saving, applyState, refreshState, saveSettings } = useSettings(callSidecar);
-const { loginBusy, runtimeStatus, statusDanger,
-        loginSummaryStatus,
-        startLogin, stopLoginPolling,
+const { runtimeStatus, statusDanger,
         syncRuntimeStatusFromAccounts } = useLoginPolling(callSidecar, refreshState, accounts);
 const { captureBusy, captureAll, captureAccount } = useCapture(callSidecar, refreshState, applyState);
 const { accountDialog, selectedAccount, openAccountDialog, saveAccount, deleteAccount } =
@@ -284,10 +280,7 @@ const businessMetrics = computed(() => {
     .filter((item) => item.value !== "--");
 });
 
-const displayedRuntimeStatus = computed(() => {
-  if (isNeutralRuntimeStatus(runtimeStatus.value)) return loginSummaryStatus.value;
-  return runtimeStatus.value;
-});
+const displayedRuntimeStatus = computed(() => runtimeStatus.value || "待命");
 
 const displayedStatusType = computed(() => {
   if (statusDanger.value) return "danger";
@@ -302,9 +295,6 @@ const displayedStatusType = computed(() => {
 });
 
 // ── Helpers ──
-function isNeutralRuntimeStatus(status) {
-  return ["待命", "已登录", "已全部登录", "部分已登录", "请先登录", "无启用账号"].includes(String(status || "").trim());
-}
 
 function formatMetricValue(value, suffix = "") {
   if (value === null || value === undefined || value === "") return "--";
@@ -337,10 +327,6 @@ async function onCaptureAll(platform) {
     activeTab.value = "accounts";
     ElMessage.warning(result.hint);
   }
-}
-
-async function onStartLogin(account) {
-  await startLogin(account, activeTab);
 }
 
 async function onDeleteAccount(account) {
@@ -406,7 +392,6 @@ onMounted(async () => {
 onUnmounted(() => {
   if (unlistenSidecar) unlistenSidecar();
   if (unlistenTrayQuit) unlistenTrayQuit();
-  stopLoginPolling();
 });
 
 async function handleTrayQuit() {

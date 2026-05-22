@@ -9,7 +9,6 @@
         <el-button @click="$emit('create')">新增登录账户</el-button>
         <el-button :disabled="!selectedAccount" @click="$emit('edit', selectedAccount)">编辑选中账户</el-button>
         <el-button :disabled="!selectedAccount" type="danger" plain @click="$emit('delete', selectedAccount)">删除选中账户</el-button>
-        <el-button :disabled="!selectedAccount || loginBusy" @click="$emit('login', selectedAccount)">登录/重新登录选中账户</el-button>
         <el-button :disabled="!selectedAccount || captureBusy" type="success" @click="$emit('capture', selectedAccount)">采集选中账号</el-button>
         <el-button :disabled="!selectedAccount" type="warning" plain @click="$emit('import-cookie', selectedAccount)">导入Cookie</el-button>
       </div>
@@ -64,7 +63,7 @@
       <el-table-column label="操作" width="188" fixed="right">
         <template #default="{ row }">
           <div class="row-actions">
-            <el-button size="small" :disabled="loginBusy" @click="$emit('login', row)">登录</el-button>
+            <el-button size="small" type="warning" plain @click="$emit('import-cookie', row)">导入</el-button>
             <el-button size="small" type="success" plain :disabled="captureBusy" @click="$emit('capture', row)">采集</el-button>
             <el-button size="small" type="danger" plain @click="$emit('delete', row)">删除</el-button>
           </div>
@@ -90,7 +89,6 @@ const props = defineProps({
   accounts: { type: Array, required: true },
   activePlatformFilter: { type: String, default: "all" },
   platformFilterOptions: { type: Array, required: true },
-  loginBusy: { type: Boolean, default: false },
   captureBusy: { type: Boolean, default: false },
   selectedAccount: { type: Object, default: null },
 });
@@ -101,7 +99,6 @@ const emit = defineEmits([
   "create",
   "edit",
   "delete",
-  "login",
   "capture",
   "import-cookie",
 ]);
