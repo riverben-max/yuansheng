@@ -138,17 +138,37 @@ class SidecarApp:
         self.upload_func = upload_func or upload_payload_with_state
 
     def _qn_capture_with_refresh(self, state: Mapping[str, Any], log: Callable[[str], None]) -> Mapping[str, Any]:
-        """千牛采集：先刷新 _m_h5_tk，再执行 mtop API 采集。"""
+        """千牛采集：如果 _m_h5_tk 未过期直接采集，否则先刷新再采集。"""
         if str(state.get("cookieProtected") or "").strip():
+            # 检查现有 _m_h5_tk 是否还在有效期内
+            if not self._qn_token_expired(state):
+                log("千牛 _m_h5_tk 未过期，跳过刷新直接采集。")
+                return self.direct_capture_func(state, log)
             try:
                 new_cookie = refresh_qn_cookie(state, log)
-                # 用新 Cookie 覆盖 state 中的 cookieProtected 供后续采集使用
                 from secure_storage import protect_text as _pt
                 state = dict(state)
                 state["cookieProtected"] = _pt(new_cookie)
             except QnCookieRefreshError as exc:
                 log(f"千牛 Cookie 刷新失败，尝试直接采集：{exc}")
         return self.direct_capture_func(state, log)
+
+    def _qn_token_expired(self, state: Mapping[str, Any]) -> bool:
+        """检查千牛 _m_h5_tk 是否已过期。"""
+        import time as _time
+        try:
+            from secure_storage import unprotect_text
+            cookie = unprotect_text(str(state.get("cookieProtected") or ""))
+            for part in str(cookie or "").split(";"):
+                name, sep, val = part.strip().partition("=")
+                if name.strip() == "_m_h5_tk" and sep:
+                    parts = val.strip().split("_")
+                    if len(parts) >= 2:
+                        tk_ts = int(parts[-1]) / 1000
+                        return _time.time() > tk_ts
+        except Exception:
+            pass
+        return True
 
     def load_state(self) -> Dict[str, Any]:
         self.data_dir.mkdir(parents=True, exist_ok=True)

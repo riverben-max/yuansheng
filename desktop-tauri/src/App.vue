@@ -366,6 +366,16 @@ async function onImportCookie(account) {
     if (result?.ok) {
       ElMessage.success("Cookie 导入成功");
       if (result.data?.state) applyState(result.data.state);
+      try {
+        await ElMessageBox.confirm("Cookie 导入成功，是否立即采集？", "立即采集", {
+          confirmButtonText: "立即采集",
+          cancelButtonText: "稍后",
+          type: "success",
+        });
+        await captureAccount(account);
+      } catch {
+        // 用户选择稍后
+      }
     }
   } catch {
     // 用户取消
