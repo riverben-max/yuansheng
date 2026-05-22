@@ -106,9 +106,12 @@ def _kill_browser(process: subprocess.Popen, log: Callable[[str], None]) -> None
             except psutil.NoSuchProcess:
                 pass
         parent.kill()
+        parent.wait(timeout=5)
     except Exception:
         try:
             process.kill()
+            process.wait(timeout=5)
         except Exception:
             pass
+    time.sleep(3)
     log("千牛 Cookie 刷新：浏览器已关闭。")

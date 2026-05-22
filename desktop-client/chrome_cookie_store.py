@@ -87,21 +87,37 @@ def inject_cookies_to_profile(profile_dir: Path, cookie_header: str, domain: str
 
 def read_cookies_from_profile(profile_dir: Path, domain_filter: str = ".taobao.com") -> str:
     """从 Chrome profile 的 Cookies 数据库读取指定域名的 Cookie，返回 header 字符串。"""
+    import os, tempfile, time
+
     db_path = _cookies_db_path(profile_dir)
     if not db_path.exists():
         return ""
 
-    conn = sqlite3.connect(str(db_path))
-    c = conn.cursor()
+    # 等待浏览器进程完全释放文件
+    time.sleep(2)
+
+    # 复制数据库文件避免锁冲突
+    tmp = os.path.join(tempfile.gettempdir(), "ys_cookie_read.db")
+    os.system(f'cmd /c copy /Y "{db_path}" "{tmp}" >nul 2>&1')
+    if not os.path.exists(tmp) or os.path.getsize(tmp) < 100:
+        return ""
+
     try:
+        conn = sqlite3.connect(tmp)
+        c = conn.cursor()
         c.execute(
             "SELECT name, value FROM cookies WHERE host_key = ? AND value != '' ORDER BY creation_utc",
             (domain_filter,),
         )
         rows = c.fetchall()
+        conn.close()
     except sqlite3.OperationalError:
         rows = []
-    conn.close()
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
     if not rows:
         return ""
