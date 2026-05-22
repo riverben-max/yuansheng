@@ -28,6 +28,7 @@ from jd_workload_capture import capture_jd_workload
 from login_accounts import add_login_account, build_account_state, capture_enabled_accounts, ensure_login_accounts
 from pdd_workload_capture import capture_pdd_workload
 from platform_adapters import default_capture_adapters
+from qn_cookie_refresh import QnCookieRefreshError, refresh_qn_cookie
 from platform_config import (
     JD_LOGIN_URL,
     PDD_LOGIN_URL,
@@ -135,6 +136,19 @@ class SidecarApp:
         self.pdd_capture_func = pdd_capture_func or capture_pdd_workload
         self.douyin_capture_func = douyin_capture_func or capture_douyin_workload
         self.upload_func = upload_func or upload_payload_with_state
+
+    def _qn_capture_with_refresh(self, state: Mapping[str, Any], log: Callable[[str], None]) -> Mapping[str, Any]:
+        """千牛采集：先刷新 _m_h5_tk，再执行 mtop API 采集。"""
+        if str(state.get("cookieProtected") or "").strip():
+            try:
+                new_cookie = refresh_qn_cookie(state, log)
+                # 用新 Cookie 覆盖 state 中的 cookieProtected 供后续采集使用
+                from secure_storage import protect_text as _pt
+                state = dict(state)
+                state["cookieProtected"] = _pt(new_cookie)
+            except QnCookieRefreshError as exc:
+                log(f"千牛 Cookie 刷新失败，尝试直接采集：{exc}")
+        return self.direct_capture_func(state, log)
 
     def load_state(self) -> Dict[str, Any]:
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -561,7 +575,7 @@ class SidecarApp:
                     capture_func=self.direct_capture_func,
                     upload_func=self.upload_func,
                     log=self.log,
-                    capture_adapters=default_capture_adapters(self.direct_capture_func, self.jd_capture_func, self.pdd_capture_func, self.douyin_capture_func),
+                    capture_adapters=default_capture_adapters(self._qn_capture_with_refresh, self.jd_capture_func, self.pdd_capture_func, self.douyin_capture_func),
                 )
                 state["lastRunAt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self._trim_upload_history(state)
@@ -595,7 +609,7 @@ class SidecarApp:
             capture_func=self.direct_capture_func,
             upload_func=self.upload_func,
             log=self.log,
-            capture_adapters=default_capture_adapters(self.direct_capture_func, self.jd_capture_func, self.pdd_capture_func, self.douyin_capture_func),
+            capture_adapters=default_capture_adapters(self._qn_capture_with_refresh, self.jd_capture_func, self.pdd_capture_func, self.douyin_capture_func),
         )
         self.save_state(state)
         self.emit(event("status", status="待命", danger=False))
