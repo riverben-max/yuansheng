@@ -1,5 +1,6 @@
 package com.ruoyi.qingbird.controller;
 
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -24,7 +25,7 @@ public class SpiderUploadController extends BaseController {
      */
     @Anonymous // 允许无 token 匿名访问
     @PostMapping("/upload")
-    public AjaxResult uploadSpiderData(@RequestBody SpiderDataUploadDTO uploadDTO) {
+    public AjaxResult uploadSpiderData(@RequestBody SpiderDataUploadDTO uploadDTO, HttpServletRequest request) {
         try {
             if (uploadDTO == null) {
                 return error("request body is required.");
@@ -38,7 +39,7 @@ public class SpiderUploadController extends BaseController {
             if (uploadDTO.getPlatformType() == null) {
                 return error("platformType is required.");
             }
-            String clientIp = IpUtils.getIpAddr();
+            String clientIp = IpUtils.getIpAddr(request);
             int rows = spiderDataService.handleSpiderUpload(uploadDTO, clientIp);
             if (rows > 0) {
                 return success("Spider data uploaded/updated successfully");
@@ -54,3 +55,4 @@ public class SpiderUploadController extends BaseController {
         }
     }
 }
+

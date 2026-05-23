@@ -29,7 +29,8 @@ public class BizSpiderDataServiceImpl implements IBizSpiderDataService {
 
     @Override
     public List<BizSpiderData> selectSpiderDataList(BizSpiderData bizSpiderData) {
-        if (!SecurityUtils.isAdmin() && !SecurityUtils.hasRole("admin") && SecurityUtils.hasRole("manager")) {
+        // admin 查全部；非 admin 都限制到当前 deptId（分公司范围）
+        if (!SecurityUtils.isAdmin()) {
             bizSpiderData.setBranchId(SecurityUtils.getDeptId());
         }
         return bizSpiderDataMapper.selectSpiderDataList(bizSpiderData);

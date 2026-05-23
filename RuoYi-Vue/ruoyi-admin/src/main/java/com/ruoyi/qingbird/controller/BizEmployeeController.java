@@ -110,7 +110,8 @@ public class BizEmployeeController extends BaseController {
     }
 
     private boolean isEmployeeInCurrentBranch(String loginAccount) {
+        // selectEmployeeByLoginAccount 内部已应用 branchManager 范围过滤
         BizEmployee employee = employeeService.selectEmployeeByLoginAccount(loginAccount);
-        return employee != null && loginAccount.equals(employee.getLoginAccount());
+        return employee != null;
     }
 }
