@@ -382,17 +382,28 @@ async function checkUpdate() {
 // ── Tauri lifecycle ──
 let unlistenSidecar = null;
 let unlistenTrayQuit = null;
+let scheduleTimer = null;
 
 onMounted(async () => {
   unlistenSidecar = await subscribeSidecarEvents(handleSidecarEvent);
   unlistenTrayQuit = await listen("tray-quit", handleTrayQuit);
   await refreshState();
   checkUpdate();
+  scheduleTimer = setInterval(() => {
+    if (!settings.scheduleEnabled || !settings.scheduleTime) return;
+    const now = new Date();
+    const [h, m] = settings.scheduleTime.split(":").map(Number);
+    if (now.getHours() !== h || now.getMinutes() !== m) return;
+    const todayStr = now.toISOString().slice(0, 10);
+    if (state.lastRunDate === todayStr) return;
+    callSidecar("capture_all", { reason: "定时采集" });
+  }, 60_000);
 });
 
 onUnmounted(() => {
   if (unlistenSidecar) unlistenSidecar();
   if (unlistenTrayQuit) unlistenTrayQuit();
+  if (scheduleTimer) clearInterval(scheduleTimer);
 });
 
 async function handleTrayQuit() {
