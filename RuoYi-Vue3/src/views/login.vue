@@ -108,9 +108,9 @@ function handleLogin() {
   proxy.$refs.loginRef.validate(valid => {
     if (valid) {
       loading.value = true
-      persistRememberedLoginForm(loginForm.value, Cookies)
       // 调用action的登录方法
       userStore.login(loginForm.value).then(() => {
+        persistRememberedLoginForm(loginForm.value, Cookies)
         const query = route.query
         const otherQueryParams = Object.keys(query).reduce((acc, cur) => {
           if (cur !== "redirect") {

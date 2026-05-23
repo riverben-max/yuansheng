@@ -359,7 +359,7 @@ async function onImportCookie(account) {
           cancelButtonText: "稍后",
           type: "success",
         });
-        await captureAccount(account);
+        await captureAccountDirect(account);
       } catch {
         // 用户选择稍后
       }
