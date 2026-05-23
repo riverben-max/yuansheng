@@ -26,13 +26,12 @@
         </el-form-item>
         <el-form-item label="日期">
           <el-date-picker
-            v-model="queryForm.dateRange"
-            type="daterange"
+            v-model="queryForm.recordDate"
+            type="date"
             format="YYYY-MM-DD"
             value-format="YYYY-MM-DD"
-            range-separator="至"
-            placeholder="选择日期范围"
-            style="width: 240px;"
+            placeholder="选择日期"
+            style="width: 160px;"
           />
         </el-form-item>
         <el-form-item label="预警状态">
@@ -43,10 +42,10 @@
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :icon="Search" @click="fetchData" class="qb-btn-primary">
+          <el-button type="primary" :icon="Search" @click="fetchData" class="qb-btn-primary" v-hasPermi="['qingbird:spider:list']">
             搜 索
           </el-button>
-          <el-button :icon="Refresh" @click="resetQuery">重 置</el-button>
+          <el-button :icon="Refresh" @click="resetQuery" v-hasPermi="['qingbird:spider:list']">重 置</el-button>
         </el-form-item>
       </el-form>
     </div>
@@ -61,45 +60,51 @@
         :row-class-name="getRowClass"
         empty-text="暂无采集数据，请确认爬虫客户端运行正常"
       >
-        <el-table-column label="店铺ID" prop="shopId" width="80" align="center" />
-        <el-table-column label="数据日期" prop="recordDate" width="120" align="center">
+        <el-table-column label="数据日期" prop="recordDate" width="110" align="center">
           <template #default="{ row }">
             <el-tag size="small" type="info">{{ row.recordDate?.slice(0,10) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="接待人数" prop="consultationCount" width="100" align="center" sortable />
-        <el-table-column label="3分钟响应率" prop="responseRate3m" width="130" align="center" sortable>
+        <el-table-column label="子账号" prop="subAccount" width="110" />
+        <el-table-column label="咨询人数" prop="consultationCount" width="90" align="center" sortable />
+        <el-table-column label="接待人数" prop="receptionCount" width="90" align="center" sortable />
+        <el-table-column label="有效接待" prop="effectiveReceptionCount" width="90" align="center" sortable />
+        <el-table-column label="转化率" prop="conversionRate" width="80" align="center" sortable>
+          <template #default="{ row }">{{ row.conversionRate ?? '-' }}%</template>
+        </el-table-column>
+        <el-table-column label="首响时长(s)" prop="firstResponseTime" width="100" align="center" sortable />
+        <el-table-column label="平响时长(s)" prop="avgResponseTime" width="100" align="center" sortable />
+        <el-table-column label="销售额(¥)" prop="salesAmount" width="100" align="center" sortable>
           <template #default="{ row }">
-            <span :class="row.responseRate3m < 50 ? 'text-danger' : 'text-success'">
+            <span style="font-weight: 600;">{{ row.salesAmount ?? '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="3分钟回复率" prop="responseRate3m" width="110" align="center" sortable>
+          <template #default="{ row }">
+            <span :class="(row.responseRate3m ?? 100) < 50 ? 'text-danger' : 'text-success'">
               {{ row.responseRate3m ?? '-' }}%
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="询单转化率" prop="conversionRate" width="120" align="center" sortable>
+        <el-table-column label="30秒回复率" prop="responseRate30s" width="100" align="center" sortable>
+          <template #default="{ row }">{{ row.responseRate30s ?? '-' }}%</template>
+        </el-table-column>
+        <el-table-column label="回复率" prop="replyRate" width="80" align="center" sortable>
+          <template #default="{ row }">{{ row.replyRate ?? '-' }}%</template>
+        </el-table-column>
+        <el-table-column label="满意度" prop="satisfaction" width="80" align="center" sortable>
+          <template #default="{ row }">{{ row.satisfaction ?? '-' }}%</template>
+        </el-table-column>
+        <el-table-column label="店铺满意度" prop="shopSatisfaction" width="100" align="center" sortable>
+          <template #default="{ row }">{{ row.shopSatisfaction ?? '-' }}%</template>
+        </el-table-column>
+        <el-table-column label="合规状态" prop="isAbnormal" width="100" align="center" fixed="right">
           <template #default="{ row }">
-            {{ row.conversionRate ?? '-' }}%
+            <el-tag v-if="row.abnormalReason === '系统无对应客服档案'" type="warning" size="small">⚠️ 无档案</el-tag>
+            <el-tag v-else-if="row.isAbnormal" type="danger" size="small">⚠️ 异常</el-tag>
+            <el-tag v-else type="success" size="small">✅ 正常</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="旺旺平响(秒)" prop="avgResponseTime" width="130" align="center" sortable />
-        <el-table-column label="客服销售额(¥)" prop="salesAmount" width="140" align="center" sortable>
-          <template #default="{ row }">
-            <span style="font-weight: 600;">{{ row.salesAmount ?? '0.00' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="退款率" prop="refundRate" width="100" align="center">
-          <template #default="{ row }">
-            {{ row.refundRate ?? '-' }}%
-          </template>
-        </el-table-column>
-        <el-table-column label="来源IP" prop="uploadIp" width="130" />
-        <el-table-column label="合规状态" prop="isAbnormal" width="110" align="center" fixed="right">
-          <template #default="{ row }">
-            <el-tag :type="row.isAbnormal ? 'danger' : 'success'" size="small">
-              {{ row.isAbnormal ? '⚠️ 异常' : '✅ 正常' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="上传时间" prop="createTime" width="160" />
       </el-table>
 
       <!-- 分页 -->
@@ -120,6 +125,7 @@
 <script setup name="QingbirdQcDetail">
 import { ref, computed, onMounted } from 'vue'
 import { Search, Refresh } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 import useUserStore from '@/store/modules/user'
 import { listBranchInfo } from '@/api/qingbird/branchInfo'
@@ -136,11 +142,18 @@ const queryForm = ref({
   pageSize: 10,
   isAbnormal: '',
   branchId: '',
-  dateRange: null
+  recordDate: null
 })
 
 const getRowClass = ({ row }) => {
   return row.isAbnormal ? 'row-danger' : ''
+}
+
+function isEndpointNotReadyError(error) {
+  const status = error?.response?.status
+  const code = error?.response?.data?.code
+  const message = String(error?.response?.data?.msg || error?.message || '')
+  return status === 404 || code === 404 || message.includes('404') || message.includes('接口未就绪')
 }
 
 const fetchData = async () => {
@@ -152,18 +165,23 @@ const fetchData = async () => {
     }
     if (isAdmin.value && queryForm.value.branchId !== '') params.branchId = queryForm.value.branchId
     if (queryForm.value.isAbnormal !== '') params.isAbnormal = queryForm.value.isAbnormal
-    if (queryForm.value.dateRange?.length === 2) {
-      params.recordDate = queryForm.value.dateRange[0]
+    if (queryForm.value.recordDate) {
+      params.recordDate = queryForm.value.recordDate
     }
 
-    const res = await request({ url: '/qingbird/spider-data/list', method: 'get', params })
+    const res = await request({ url: '/qingbird/spider-data/list', method: 'get', params, hideErrorCodes: [404] })
     if (res.code === 200) {
       tableData.value = res.rows || []
       total.value = res.total || 0
     }
   } catch (e) {
-    // 接口未就绪时显示空表格
-    tableData.value = []
+    if (isEndpointNotReadyError(e)) {
+      tableData.value = []
+      total.value = 0
+      ElMessage.warning('质检明细接口暂未就绪')
+      return
+    }
+    ElMessage.error(e?.message || '质检明细加载失败')
   } finally {
     loading.value = false
   }
@@ -172,7 +190,7 @@ const fetchData = async () => {
 const resetQuery = () => {
   queryForm.value.branchId = ''
   queryForm.value.isAbnormal = ''
-  queryForm.value.dateRange = null
+  queryForm.value.recordDate = null
   queryForm.value.pageNum = 1
   fetchData()
 }

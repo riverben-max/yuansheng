@@ -1,12 +1,16 @@
 import request from '@/utils/request'
 
+const endpointNotReadyFallback = {
+  hideErrorCodes: [404]
+}
+
 // 查询分公司主体档案列表 (Admin用)
 export function listBranchInfo(query) {
   return request({
     url: '/qingbird/branch-info/list',
     method: 'get',
     params: query,
-    hideErrorMsg: true
+    ...endpointNotReadyFallback
   })
 }
 
@@ -15,7 +19,7 @@ export function getBranchInfo(id) {
   return request({
     url: '/qingbird/branch-info/' + id,
     method: 'get',
-    hideErrorMsg: true
+    ...endpointNotReadyFallback
   })
 }
 
@@ -24,7 +28,7 @@ export function getMyBranchInfo() {
   return request({
     url: '/qingbird/branch-info/my',
     method: 'get',
-    hideErrorMsg: true
+    ...endpointNotReadyFallback
   })
 }
 
@@ -34,7 +38,7 @@ export function addBranchInfo(data) {
     url: '/qingbird/branch-info',
     method: 'post',
     data: data,
-    hideErrorMsg: true
+    ...endpointNotReadyFallback
   })
 }
 
@@ -44,7 +48,7 @@ export function updateBranchInfo(data) {
     url: '/qingbird/branch-info',
     method: 'put',
     data: data,
-    hideErrorMsg: true
+    ...endpointNotReadyFallback
   })
 }
 
@@ -53,7 +57,7 @@ export function delBranchInfo(id) {
   return request({
     url: '/qingbird/branch-info/' + id,
     method: 'delete',
-    hideErrorMsg: true
+    ...endpointNotReadyFallback
   })
 }
 
@@ -63,7 +67,7 @@ export function submitBranchInfo(data) {
     url: '/qingbird/branch-info/submit',
     method: 'post',
     data: data,
-    hideErrorMsg: true
+    ...endpointNotReadyFallback
   })
 }
 
@@ -72,6 +76,6 @@ export function approveBranchInfo(id) {
   return request({
     url: '/qingbird/branch-info/approve/' + id,
     method: 'put',
-    hideErrorMsg: true
+    ...endpointNotReadyFallback
   })
 }

@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, Mapping
 import httpx
 
 from direct_api_capture import DirectApiCaptureError, DirectApiLoginRequiredError
+from error_sanitizer import sanitize_sensitive_text
 from platform_config import PDD_CHAT_OVERVIEW_URL
 from secure_storage import unprotect_text
 from spider_core import convert_metric_value, parse_json_text
@@ -115,12 +116,13 @@ def parse_pdd_workload_payload(raw_data: Any, request_params: Mapping[str, Any],
 
     record_date = str(request_params.get("recordDate") or "").strip()
     sub_account = _first_text(row.get("cs_name"), row.get("uid"))
-    login_account = _first_text(state.get("shopName"), state.get("lastKnownLoginAccount"), "拼多多")
+    login_account = _first_text(state.get("loginHint"), state.get("lastKnownLoginAccount"), sub_account, "拼多多")
     raw_metrics = dict(row)
     raw_metrics.update(
         {
             "source": "pdd_cs_report_detail",
             "accountIdentity": sub_account,
+            "shopName": str(state.get("shopName") or "").strip(),
             "requestUrl": PDD_REPORT_URL,
             "requestParams": {
                 "starttime": request_params.get("starttime"),
@@ -151,7 +153,7 @@ def _find_pdd_target_row(rows: list, state: Mapping[str, Any]) -> Mapping[str, A
     if len(rows) == 1:
         return rows[0]
     targets = []
-    for key in ("lastKnownLoginAccount", "subAccount", "loginHint"):
+    for key in ("loginHint", "lastKnownLoginAccount", "subAccount"):
         target = str(state.get(key) or "").strip()
         if target and target not in targets:
             targets.append(target)
@@ -210,7 +212,7 @@ def _response_text_summary(response: Any) -> str:
     if not text:
         return ""
     compact = " ".join(text.split())
-    return f"响应摘要：{compact[:300]}"
+    return f"响应摘要：{sanitize_sensitive_text(compact)}"
 
 
 def _cookie_count(cookie: str) -> int:

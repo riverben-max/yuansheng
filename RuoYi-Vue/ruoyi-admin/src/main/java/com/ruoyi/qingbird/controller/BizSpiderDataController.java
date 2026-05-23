@@ -24,7 +24,7 @@ public class BizSpiderDataController extends BaseController {
     /**
      * 查询爬虫/质检数据列表
      */
-    @PreAuthorize("@ss.hasPermi('qingbird:spider:list') or @ss.hasAnyRoles('admin,manager')")
+    @PreAuthorize("@ss.hasPermi('qingbird:spider:list')")
     @GetMapping("/list")
     public TableDataInfo list(BizSpiderData bizSpiderData) {
         startPage();

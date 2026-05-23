@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.qingbird.domain.dto.DashboardDataVO;
 import com.ruoyi.qingbird.mapper.DashboardMapper;
 
@@ -21,32 +22,37 @@ public class DashboardController extends BaseController {
     @Autowired
     private DashboardMapper dashboardMapper;
 
-    @PreAuthorize("@ss.hasPermi('qingbird:dashboard:list') or @ss.hasAnyRoles('admin,manager')")
+    @PreAuthorize("@ss.hasPermi('qingbird:dashboard:list')")
     @GetMapping("/overview")
     public AjaxResult getOverview() {
         DashboardDataVO vo = new DashboardDataVO();
+        Long branchId = getDashboardScopeBranchId();
 
         // ===== 核心 KPI（真实数据）=====
-        BigDecimal todaySales = dashboardMapper.sumTodaySales();
+        BigDecimal todaySales = dashboardMapper.sumTodaySales(branchId);
         vo.setTodaySalesAmount(todaySales != null ? todaySales : BigDecimal.ZERO);
-        vo.setActiveEmployeeCount(dashboardMapper.countActiveEmployees());
-        vo.setActiveShopCount(dashboardMapper.countActiveShops());
+        vo.setActiveEmployeeCount(dashboardMapper.countActiveEmployees(branchId));
+        vo.setActiveShopCount(dashboardMapper.countActiveShops(branchId));
 
         // ===== 业务规模（真实数据）=====
-        vo.setTodayConsultation(dashboardMapper.sumTodayConsultation());
-        vo.setTodayOperatorCount(dashboardMapper.countTodayOperators());
-        vo.setMonthConsultation(dashboardMapper.sumMonthConsultation());
+        vo.setTodayConsultation(dashboardMapper.sumTodayConsultation(branchId));
+        vo.setTodayOperatorCount(dashboardMapper.countTodayOperators(branchId));
+        vo.setMonthConsultation(dashboardMapper.sumMonthConsultation(branchId));
 
         // ===== 合规预警（真实数据）=====
-        vo.setTodayAbnormalCount(dashboardMapper.countTodayAbnormal());
-        vo.setTodayNormalCount(dashboardMapper.countTodayNormal());
-        vo.setTodayHighRiskCount(dashboardMapper.countTodayHighRisk());
-        vo.setMonthAbnormalCount(dashboardMapper.countMonthAbnormal());
+        vo.setTodayAbnormalCount(dashboardMapper.countTodayAbnormal(branchId));
+        vo.setTodayNormalCount(dashboardMapper.countTodayNormal(branchId));
+        vo.setTodayHighRiskCount(dashboardMapper.countTodayHighRisk(branchId));
+        vo.setMonthAbnormalCount(dashboardMapper.countMonthAbnormal(branchId));
 
         // ===== 趋势 & 预警列表（真实数据）=====
-        vo.setTrendData(dashboardMapper.selectWeekTrend());
-        vo.setAlertList(dashboardMapper.selectRecentAlerts());
+        vo.setTrendData(dashboardMapper.selectWeekTrend(branchId));
+        vo.setAlertList(dashboardMapper.selectRecentAlerts(branchId));
 
         return success(vo);
+    }
+
+    private Long getDashboardScopeBranchId() {
+        return SecurityUtils.isAdmin() ? null : SecurityUtils.getDeptId();
     }
 }

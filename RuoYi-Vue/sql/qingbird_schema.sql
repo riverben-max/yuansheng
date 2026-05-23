@@ -37,14 +37,17 @@ INSERT INTO `biz_shop` (`shop_id`, `shop_name`, `platform_type`, `login_account`
 
 -- ----------------------------
 -- 2. 采集数据明细表 biz_spider_data
---    唯一键: (shop_id, record_date, sub_account)
---    即：同一店铺 + 同一天 + 同一子账号 只保留一条记录（upsert）
+--    唯一键: (login_account, platform_type, record_date, sub_account)
+--    即：同一平台登录账号 + 同一天 + 同一子账号 只保留一条记录（upsert）
 -- ----------------------------
 DROP TABLE IF EXISTS `biz_spider_data`;
 CREATE TABLE `biz_spider_data` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-  `shop_id` bigint(20) NOT NULL COMMENT '关联业务店铺 ID',
-  `employee_id` bigint(20) NOT NULL COMMENT '上传员工 ID',
+  `shop_id` bigint(20) DEFAULT NULL COMMENT '兼容旧版：关联业务店铺 ID',
+  `employee_id` bigint(20) DEFAULT NULL COMMENT '上传员工 ID',
+  `branch_id` bigint(20) DEFAULT NULL COMMENT '分公司/部门 ID',
+  `platform_type` tinyint(4) NOT NULL DEFAULT '1' COMMENT '平台：1淘宝 2京东 3拼多多 4抖店',
+  `login_account` varchar(100) NOT NULL COMMENT '客服平台登录主账号',
   `record_date` date NOT NULL COMMENT '数据日期（如2026-03-31）',
   `sub_account` varchar(100) NOT NULL DEFAULT '' COMMENT '千牛客服子账号（无子账号时填主账号）',
   `consultation_count` int(11) DEFAULT NULL COMMENT '咨询人数',
@@ -62,29 +65,38 @@ CREATE TABLE `biz_spider_data` (
   `raw_metrics` json DEFAULT NULL COMMENT '原始采集字典数据（JSON备份）',
   `upload_ip` varchar(45) DEFAULT NULL COMMENT '上传来源IP',
   `is_abnormal` tinyint(2) DEFAULT '0' COMMENT '是否触发预警(0正常 1低于阈值异常)',
+  `abnormal_reason` varchar(255) DEFAULT NULL COMMENT '异常原因',
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '上传时间',
   `update_time` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '最近更新时间',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_shop_date_sub` (`shop_id`,`record_date`,`sub_account`) COMMENT '同一店铺同一天同一子账号不重复',
+  UNIQUE KEY `uk_login_platform_date_sub` (`login_account`,`platform_type`,`record_date`,`sub_account`) COMMENT '同一平台登录账号同一天同一子账号不重复',
+  KEY `idx_branch_id` (`branch_id`),
+  KEY `idx_login_account` (`login_account`),
   KEY `idx_record_date` (`record_date`),
   KEY `idx_sub_account` (`sub_account`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='采集数据明细表';
 
 -- ----------------------------
--- 3. 产值核算台账表 biz_settlement_log
+-- 3. 结算信息表 biz_settlement
 -- ----------------------------
-DROP TABLE IF EXISTS `biz_settlement_log`;
-CREATE TABLE `biz_settlement_log` (
-  `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '台账ID',
-  `branch_id` bigint(20) NOT NULL COMMENT '分公司ID(sys_dept)',
-  `settle_month` varchar(7) NOT NULL COMMENT '核算月份（如 2026-03）',
-  `amount` decimal(12,2) NOT NULL COMMENT '该月度核算台账总额（元）',
-  `operator_id` bigint(20) NOT NULL COMMENT '操作录入人(sys_user)',
-  `remark` varchar(500) DEFAULT NULL COMMENT '备注与调整说明',
-  `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '登记时间',
-  `update_time` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '最近修改时间',
+DROP TABLE IF EXISTS `biz_settlement`;
+CREATE TABLE `biz_settlement` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '结算ID',
+  `branch_id` bigint(20) DEFAULT NULL COMMENT '被结算的分公司ID',
+  `branch_name` varchar(255) DEFAULT NULL COMMENT '被结算的分公司名称',
+  `settlement_period` varchar(50) DEFAULT NULL COMMENT '结算周期',
+  `settlement_amount` decimal(10,2) DEFAULT '0.00' COMMENT '结算金额',
+  `base_salary` decimal(10,2) DEFAULT '0.00' COMMENT '底薪',
+  `commission` decimal(10,2) DEFAULT '0.00' COMMENT '佣金',
+  `penalty` decimal(10,2) DEFAULT '0.00' COMMENT '扣罚',
+  `settlement_time` datetime DEFAULT NULL COMMENT '结算时间',
+  `remark` varchar(500) DEFAULT NULL COMMENT '结算备注',
+  `create_by` varchar(64) DEFAULT '' COMMENT '创建者',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_by` varchar(64) DEFAULT '' COMMENT '更新者',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_branch_month` (`branch_id`,`settle_month`) COMMENT '同一分公司每月仅一条台账'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='产值核算台账表';
+  KEY `idx_branch_period` (`branch_id`,`settlement_period`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='结算信息表';
 
 SET FOREIGN_KEY_CHECKS = 1;

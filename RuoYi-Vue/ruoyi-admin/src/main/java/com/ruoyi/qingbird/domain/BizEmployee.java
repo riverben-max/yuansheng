@@ -28,6 +28,9 @@ public class BizEmployee extends BaseEntity {
     @Excel(name = "登录账号")
     private String loginAccount;
 
+    /** 创建系统用户时使用的初始密码，不落库 */
+    private transient String initialPassword;
+
     /** 身份证号 */
     @Excel(name = "身份证号")
     private String idCard;

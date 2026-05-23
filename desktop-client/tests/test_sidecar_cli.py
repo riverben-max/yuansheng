@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import json
+from contextlib import contextmanager
 from types import SimpleNamespace
 import tempfile
 import threading
@@ -67,6 +68,8 @@ class SidecarStateTests(unittest.TestCase):
             app = SidecarApp(data_dir=Path(temp_dir), emit=lambda _event: None)
             state = app.load_state()
             state["loginAccounts"][0]["cookieProtected"] = "dpapi:v1:secret"
+            state["loginAccounts"][0]["douyinCsrfToken"] = "plain-csrf"
+            state["loginAccounts"][0]["douyinCsrfTokenProtected"] = "dpapi:v1:csrf"
             state["loginAccounts"][0]["lastCaptureSummary"] = {
                 "ok": True,
                 "displayName": "林志玲",
@@ -77,6 +80,8 @@ class SidecarStateTests(unittest.TestCase):
 
         public_account = result["loginAccounts"][0]
         self.assertNotIn("cookieProtected", public_account)
+        self.assertNotIn("douyinCsrfToken", public_account)
+        self.assertNotIn("douyinCsrfTokenProtected", public_account)
         self.assertEqual(public_account["lastCaptureSummary"]["displayName"], "林志玲")
 
     def test_save_settings_persists_schedule_and_runtime_preferences(self) -> None:
@@ -110,6 +115,84 @@ class SidecarStateTests(unittest.TestCase):
         self.assertFalse(reloaded["scheduleEnabled"])
         self.assertTrue(reloaded["shadowChromeAutoLaunch"])
         self.assertFalse(reloaded["exitRequiresConfirm"])
+
+    def test_state_writing_commands_hold_file_lock_across_load_mutate_save(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = SidecarApp(data_dir=Path(temp_dir), emit=lambda _event: None)
+            original_lock = app.state_file_lock
+            depth = {"value": 0}
+            observed = []
+
+            @contextmanager
+            def tracking_lock():
+                with original_lock():
+                    depth["value"] += 1
+                    try:
+                        yield
+                    finally:
+                        depth["value"] -= 1
+
+            def observed_load_state():
+                observed.append(("load", depth["value"]))
+                return SidecarApp.load_state(app)
+
+            def observed_save_state(state):
+                observed.append(("save", depth["value"]))
+                return SidecarApp.save_state(app, state)
+
+            app.state_file_lock = tracking_lock
+            app.load_state = observed_load_state
+            app.save_state = observed_save_state
+
+            app.save_settings({"scheduleTime": "10:30"})
+
+        self.assertIn(("load", 1), observed)
+        self.assertIn(("save", 1), observed)
+
+    def test_capture_all_releases_state_lock_during_capture_work(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = SidecarApp(data_dir=Path(temp_dir), emit=lambda _event: None)
+            state = app.load_state()
+            state["loginAccounts"] = [
+                {
+                    "id": "default",
+                    "displayName": "默认账号",
+                    "platform": "qn",
+                    "enabled": True,
+                    "cookieProtected": "dpapi:v1:cookie",
+                }
+            ]
+            app.save_state(state)
+
+            original_lock = app.state_file_lock
+            depth = {"value": 0}
+            capture_depths = []
+
+            @contextmanager
+            def tracking_lock():
+                with original_lock():
+                    depth["value"] += 1
+                    try:
+                        yield
+                    finally:
+                        depth["value"] -= 1
+
+            def fake_capture(_config, _log):
+                capture_depths.append(depth["value"])
+                return {
+                    "loginAccount": "shop",
+                    "recordDate": "2026-05-12",
+                    "subAccount": "客服A",
+                }
+
+            app.state_file_lock = tracking_lock
+            app.direct_capture_func = fake_capture
+            app.upload_func = lambda _state, _payload, _signature, _reason: ("服务端上传成功：上传成功。", {"uploadedAt": "2026-05-12 09:00:00"})
+
+            result = app.capture_all({"reason": "手动采集"})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(capture_depths, [0])
 
 
 class SidecarAccountTests(unittest.TestCase):
@@ -192,6 +275,60 @@ class SidecarAccountTests(unittest.TestCase):
         self.assertEqual(public_account["platform"], "pdd")
         self.assertEqual(public_account["shopName"], "拼多多远盛旗舰店")
         self.assertEqual(public_account["shopId"], 43)
+
+    def test_account_update_clears_platform_specific_credentials_when_platform_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = SidecarApp(data_dir=Path(temp_dir), emit=lambda _event: None)
+            state = app.load_state()
+            account = state["loginAccounts"][0]
+            account.update(
+                {
+                    "platform": "douyin",
+                    "cookieProtected": "dpapi:v1:cookie",
+                    "douyinCsrfTokenProtected": "dpapi:v1:csrf",
+                    "lastKnownLoginAccount": "douyin-user",
+                    "cookieUpdatedAt": "2026-05-18 09:00:00",
+                    "activeChromePort": 9333,
+                }
+            )
+            app.save_state(state)
+
+            result = app.account_update({"id": "default", "platform": "jd"})
+            reloaded = app.load_state()
+
+        self.assertTrue(result["ok"])
+        account = reloaded["loginAccounts"][0]
+        self.assertEqual(account["platform"], "jd")
+        self.assertNotIn("cookieProtected", account)
+        self.assertNotIn("douyinCsrfTokenProtected", account)
+        self.assertEqual(account.get("lastKnownLoginAccount", ""), "")
+        self.assertEqual(account["loginStatus"], "待登录")
+
+    def test_import_cookie_without_new_douyin_csrf_clears_old_token(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = SidecarApp(data_dir=Path(temp_dir), emit=lambda _event: None)
+            state = app.load_state()
+            account = state["loginAccounts"][0]
+            account["platform"] = "douyin"
+            account["douyinCsrfTokenProtected"] = "dpapi:v1:old-csrf"
+            app.save_state(state)
+
+            original_protect = sidecar_cli.protect_text
+            original_resolve = sidecar_cli._resolve_douyin_user_info
+            sidecar_cli.protect_text = lambda value: f"dpapi:v1:{value}"
+            sidecar_cli._resolve_douyin_user_info = lambda _cookie, _csrf, _log: ("dy-user", "抖店远盛店")
+            try:
+                result = app.import_cookie({"accountId": "default", "cookieText": "sessionid=abc; uid=1"})
+                reloaded = app.load_state()
+            finally:
+                sidecar_cli.protect_text = original_protect
+                sidecar_cli._resolve_douyin_user_info = original_resolve
+
+        account = reloaded["loginAccounts"][0]
+        self.assertTrue(result["ok"])
+        self.assertNotIn("douyinCsrfToken", account)
+        self.assertNotIn("douyinCsrfTokenProtected", account)
+        self.assertNotIn("douyinCsrfTokenProtected", result["data"]["state"]["loginAccounts"][0])
 
     def test_start_login_requires_selected_account(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1576,6 +1713,47 @@ class SidecarCaptureTests(unittest.TestCase):
         self.assertFalse(result["data"]["results"][0]["ok"])
         self.assertEqual(result["data"]["results"][0]["message"], "采集失败")
 
+    def test_upload_failure_message_redacts_sensitive_text(self) -> None:
+        state = {"serverUrl": "http://example.com", "uploadHistory": {}}
+
+        def bad_upload(_server_url, _payload, timeout_seconds=10.0):
+            raise sidecar_cli.UploadClientError("服务端拒绝：Cookie=secret; thor=abc; X-Sign=sign-value")
+
+        original_upload = sidecar_cli.upload_employee_payload
+        sidecar_cli.upload_employee_payload = bad_upload
+        try:
+            message, record = sidecar_cli.upload_payload_with_state(
+                state,
+                {"platform": "pdd", "loginAccount": "shop", "recordDate": "2026-05-12"},
+                "signature",
+                "手动采集",
+            )
+        finally:
+            sidecar_cli.upload_employee_payload = original_upload
+
+        self.assertIsNone(record)
+        self.assertIn("<redacted>", message)
+        self.assertNotIn("secret", message)
+        self.assertNotIn("sign-value", message)
+
+    def test_capture_account_disabled_account_returns_skipped(self) -> None:
+        def bad_direct_capture(_state, _log):
+            raise AssertionError("禁用账号不应执行采集")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = SidecarApp(data_dir=Path(temp_dir), emit=lambda _event: None, direct_capture_func=bad_direct_capture)
+            state = app.load_state()
+            state["loginAccounts"][0]["enabled"] = False
+            state["loginAccounts"][0]["cookieProtected"] = "dpapi:v1:encrypted-cookie"
+            app.save_state(state)
+
+            result = app.capture_account({"accountId": "default"})
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["data"]["batch"])
+        self.assertEqual(result["data"]["results"][0]["status"], "skipped")
+        self.assertIn("已禁用", result["data"]["results"][0]["message"])
+
     def test_capture_account_for_jd_uses_jd_adapter(self) -> None:
         def bad_direct_capture(_state, _log):
             raise AssertionError("京东账号不应调用千牛采集")
@@ -1724,6 +1902,87 @@ class SidecarCaptureTests(unittest.TestCase):
         self.assertTrue(reloaded["lastRunAt"])
         jd_account = next(item for item in reloaded["loginAccounts"] if item["id"] == "jd-account")
         self.assertEqual(jd_account["lastFailureReason"], "")
+
+    def test_capture_all_with_platform_only_captures_that_platform(self) -> None:
+        captured_platforms = []
+
+        def fake_direct_capture(state, _log):
+            captured_platforms.append(state["platform"])
+            return {"loginAccount": "远盛电商", "recordDate": "2026-05-09", "subAccount": "千牛账号"}
+
+        def fake_jd_capture(state, _log):
+            captured_platforms.append(state["platform"])
+            return {"loginAccount": "京东账号", "recordDate": "2026-05-12", "subAccount": "if自营菠萝"}
+
+        def fake_upload(_state, _payload, _signature, _reason):
+            return "服务端上传成功：上传成功。", {"uploadedAt": "2026-05-09 09:00:00"}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            app = SidecarApp(
+                data_dir=data_dir,
+                emit=lambda _event: None,
+                direct_capture_func=fake_direct_capture,
+                jd_capture_func=fake_jd_capture,
+                upload_func=fake_upload,
+            )
+            state = app.load_state()
+            state["loginAccounts"] = [
+                {
+                    "id": "qn-account",
+                    "platform": "qn",
+                    "displayName": "千牛账号",
+                    "enabled": True,
+                    "profileDir": str(data_dir / "profiles" / "qn"),
+                    "cookieProtected": "dpapi:v1:qn-cookie",
+                },
+                {
+                    "id": "jd-account",
+                    "platform": "jd",
+                    "displayName": "京东账号",
+                    "enabled": True,
+                    "profileDir": str(data_dir / "profiles" / "jd"),
+                    "cookieProtected": "dpapi:v1:jd-cookie",
+                },
+            ]
+            app.save_state(state)
+
+            result = app.capture_all({"reason": "手动采集", "platform": "jd"})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(captured_platforms, ["jd"])
+        self.assertEqual(len(result["data"]["results"]), 1)
+
+    def test_capture_all_with_platform_no_match_returns_empty_batch(self) -> None:
+        captured_platforms = []
+
+        def bad_direct_capture(state, _log):
+            captured_platforms.append(state.get("platform"))
+            raise AssertionError("指定平台无账号时不应回退旧单账号采集")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            app = SidecarApp(data_dir=data_dir, emit=lambda _event: None, direct_capture_func=bad_direct_capture)
+            state = app.load_state()
+            state["loginAccounts"] = [
+                {
+                    "id": "jd-account",
+                    "platform": "jd",
+                    "displayName": "京东账号",
+                    "enabled": True,
+                    "profileDir": str(data_dir / "profiles" / "jd"),
+                    "cookieProtected": "dpapi:v1:jd-cookie",
+                }
+            ]
+            app.save_state(state)
+
+            result = app.capture_all({"reason": "手动采集", "platform": "pdd"})
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["data"]["batch"])
+        self.assertEqual(result["data"]["results"], [])
+        self.assertEqual(result["data"]["skipped"], True)
+        self.assertEqual(captured_platforms, [])
 
 
 if __name__ == "__main__":

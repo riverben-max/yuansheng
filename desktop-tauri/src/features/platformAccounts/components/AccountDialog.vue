@@ -6,6 +6,21 @@
           <el-option v-for="item in accountPlatformOptions" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
       </el-form-item>
+      <el-form-item label="店铺名称">
+        <el-input v-model="account.shopName" placeholder="用于上传展示和账号识别" />
+      </el-form-item>
+      <el-form-item label="显示名称">
+        <el-input v-model="account.displayName" placeholder="账号列表展示名称" />
+      </el-form-item>
+      <el-form-item label="登录识别名">
+        <el-input v-model="account.loginHint" placeholder="多客服数据匹配用，如客服名、PIN 或 UID" />
+      </el-form-item>
+      <el-form-item label="后端店铺 ID">
+        <el-input-number v-model="account.shopId" :min="0" class="full-input" controls-position="right" />
+      </el-form-item>
+      <el-form-item label="启用">
+        <el-switch v-model="account.enabled" />
+      </el-form-item>
     </el-form>
     <template #footer>
       <el-button @click="account.visible = false">取消</el-button>

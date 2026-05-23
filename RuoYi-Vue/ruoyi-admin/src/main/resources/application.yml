@@ -96,8 +96,8 @@ spring:
 token:
   # 令牌自定义标识
   header: Authorization
-  # 令牌密钥
-  secret: abcdefghijklmnopqrstuvwxyz
+  # 令牌密钥，必须通过环境变量提供；示例：RUOYI_TOKEN_SECRET=replace-with-long-random-secret
+  secret: ${RUOYI_TOKEN_SECRET:}
   # 令牌有效期（默认30分钟）
   expireTime: 30
 
@@ -119,9 +119,10 @@ pagehelper:
 # Springdoc配置
 springdoc:
   api-docs:
+    enabled: ${SPRINGDOC_ENABLED:false}
     path: /v3/api-docs
   swagger-ui:
-    enabled: true
+    enabled: ${SPRINGDOC_ENABLED:false}
     path: /swagger-ui.html
     tags-sorter: alpha
   group-configs:
@@ -141,6 +142,7 @@ referer:
 qingbird:
   rpa:
     # 签名验证密钥（需与桌面端 auth_config.json 中的 secretKey 一致）
+    # 生产环境必须同时配置 QINGBIRD_RPA_APP_KEY 和 QINGBIRD_RPA_SECRET_KEY。
     app-key: ${QINGBIRD_RPA_APP_KEY:}
     secret-key: ${QINGBIRD_RPA_SECRET_KEY:}
     # 签名有效期（秒），默认300秒防重放
@@ -151,6 +153,6 @@ xss:
   # 过滤开关
   enabled: true
   # 排除链接（多个用逗号分隔）
-  excludes: /system/notice
+  excludes: ""
   # 匹配链接
   urlPatterns: /system/*,/monitor/*,/tool/*,/qingbird/*

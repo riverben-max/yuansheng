@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, Mapping
 import httpx
 
 from direct_api_capture import DirectApiCaptureError, DirectApiLoginRequiredError
+from error_sanitizer import sanitize_sensitive_text
 from secure_storage import unprotect_text
 from spider_core import convert_metric_value, normalize_date_string, parse_json_text
 
@@ -82,7 +83,7 @@ def capture_jd_workload(
 
 
 def resolve_jd_service_pin(state: Mapping[str, Any]) -> str:
-    for key in ("lastKnownLoginAccount", "loginHint"):
+    for key in ("loginHint", "lastKnownLoginAccount"):
         value = str(state.get(key) or "").strip()
         if value:
             return value
@@ -173,7 +174,7 @@ def parse_jd_workload_payload(
         raise JdWorkloadCaptureError("京东工作量接口 workKpiList 第一行不是对象。")
 
     service_pin = str(request_params.get("servicePin") or state.get("lastKnownLoginAccount") or state.get("loginHint") or "").strip()
-    login_account = _first_text(state.get("shopName"), state.get("lastKnownLoginAccount"), service_pin)
+    login_account = _first_text(service_pin, state.get("loginHint"), state.get("lastKnownLoginAccount"), "京东")
     record_date = normalize_date_string(row.get("dayStr")) or str(request_params.get("startTime") or "")
     sub_account = _first_text(
         None if str(row.get("waiter") or "").strip() in ("未分配", "unassigned", "") else row.get("waiter"),
@@ -196,6 +197,7 @@ def parse_jd_workload_payload(
         "rawMetrics": {
             "source": "jd_workload",
             "accountIdentity": service_pin,
+            "shopName": str(state.get("shopName") or "").strip(),
             "requestUrl": JD_WORKLOAD_QUERY_URL,
             "requestParams": dict(request_params),
             "rowData": dict(row),
@@ -224,7 +226,7 @@ def _response_text_summary(response: Any) -> str:
     if not text:
         return ""
     compact = " ".join(text.split())
-    return f"响应摘要：{compact[:300]}"
+    return f"响应摘要：{sanitize_sensitive_text(compact)}"
 
 
 def _cookie_count(cookie: str) -> int:

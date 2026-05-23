@@ -10,8 +10,10 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, MutableMapping
 from shadow_browser import DEFAULT_REMOTE_PORT, default_shadow_profile_dir
 from spider_core import format_employee_summary, payload_signature, positive_int
 from direct_api_capture import DirectApiCaptureError, DirectApiLoginRequiredError
+from error_sanitizer import sanitize_sensitive_text
 from platform_adapters import CaptureAdapter, select_capture_adapter
 from platform_config import normalize_platform
+from secure_storage import unprotect_text
 
 
 LoginAccount = Dict[str, Any]
@@ -60,7 +62,7 @@ def add_login_account(
         "loginHint": clean_hint,
         "platform": normalize_platform(platform),
         "shopName": str(shop_name or "").strip(),
-        "shopId": int(shop_id) if shop_id else 0,
+        "shopId": safe_shop_id(shop_id),
         "enabled": True,
         "profileDir": str(profile_dir),
         "chromePort": 0,
@@ -84,7 +86,30 @@ def capture_enabled_accounts(
 ) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
     adapters = capture_adapters or {"qn": capture_func}
-    enabled_accounts = [account for account in accounts if bool(account.get("enabled", True))]
+    source_accounts = list(accounts)
+    disabled_accounts = [account for account in source_accounts if not bool(account.get("enabled", True))]
+    for account in disabled_accounts:
+        display_name = str(account.get("displayName") or account.get("loginHint") or account.get("id") or "").strip()
+        message = "账号已禁用，跳过采集。"
+        now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        account["lastCaptureAt"] = now_text
+        account["lastResult"] = message
+        account["lastError"] = ""
+        results.append(
+            {
+                "accountId": account.get("id"),
+                "displayName": display_name,
+                "ok": True,
+                "status": "skipped",
+                "message": message,
+                "loginStatus": str(account.get("loginStatus") or ""),
+                "lastCaptureAt": now_text,
+                "lastResult": message,
+                "lastError": "",
+            }
+        )
+        log(f"登录账户 {display_name or '--'} 已禁用，跳过采集。")
+    enabled_accounts = [account for account in source_accounts if bool(account.get("enabled", True))]
     for index, account in enumerate(enabled_accounts, start=1):
         display_name = str(account.get("displayName") or account.get("loginHint") or account.get("id") or "").strip()
         log(f"开始采集登录账户 {index}/{len(enabled_accounts)}：{display_name or '--'}。")
@@ -94,14 +119,14 @@ def capture_enabled_accounts(
             selected_capture_func = select_capture_adapter(platform, adapters)
             payload = dict(selected_capture_func(account_state, log))
             payload["platform"] = platform
-            payload["shopId"] = int(account.get("shopId") or 0)
+            payload["shopId"] = safe_shop_id(account.get("shopId"))
             signature = payload_signature(payload)
             upload_message, upload_record = upload_func(state, payload, signature, reason)
         except Exception as exc:
             status = "需要重新登录" if _looks_like_login_error(exc) else "采集失败"
             failure_reason = _failure_reason(exc)
             now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            message = str(exc)
+            message = sanitize_sensitive_text(exc)
             account["loginStatus"] = status
             account["lastCaptureAt"] = now_text
             account["lastError"] = message
@@ -183,7 +208,7 @@ def build_account_state(state: Mapping[str, Any], account: Mapping[str, Any]) ->
     account_state["accountCookieRequired"] = True
     account_state["platform"] = normalize_platform(account.get("platform"))
     account_state["shopName"] = str(account.get("shopName") or "").strip()
-    account_state["shopId"] = int(account.get("shopId") or 0)
+    account_state["shopId"] = safe_shop_id(account.get("shopId"))
     account_state["shadowChromeProfileDir"] = profile_dir
     account_state["chromeUserDataDir"] = profile_dir
     account_state["chromePort"] = _account_port(account)
@@ -199,10 +224,10 @@ def build_account_state(state: Mapping[str, Any], account: Mapping[str, Any]) ->
     raw_login_hint = str(account.get("loginHint") or "").strip()
     if raw_login_hint:
         account_state["loginHint"] = raw_login_hint
-    login_hint = str(account.get("lastKnownLoginAccount") or account.get("loginHint") or "").strip()
+    login_hint = str(account.get("loginHint") or account.get("lastKnownLoginAccount") or "").strip()
     if login_hint:
         account_state["lastKnownLoginAccount"] = login_hint
-    douyin_csrf = str(account.get("douyinCsrfToken") or "").strip()
+    douyin_csrf = _account_secret_text(account, "douyinCsrfTokenProtected") or str(account.get("douyinCsrfToken") or "").strip()
     if douyin_csrf:
         account_state["douyinCsrfToken"] = douyin_csrf
     return account_state
@@ -222,7 +247,7 @@ def _normalize_account(raw: Any, data_dir: Path, index: int) -> LoginAccount:
             "loginHint": login_hint,
             "platform": normalize_platform(account.get("platform")),
             "shopName": str(account.get("shopName") or "").strip(),
-            "shopId": int(account.get("shopId") or 0),
+            "shopId": safe_shop_id(account.get("shopId")),
             "enabled": bool(account.get("enabled", True)),
             "profileDir": profile_dir,
             "chromePort": _account_port(account),
@@ -259,6 +284,14 @@ def _legacy_account_from_state(state: Mapping[str, Any], data_dir: Path) -> Logi
         "lastResult": str(state.get("lastPayloadSummary") or ""),
         "lastError": "",
     }
+
+
+def safe_shop_id(value: Any) -> int:
+    try:
+        shop_id = int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return shop_id if shop_id > 0 else 0
 
 
 def _ensure_unique_profile_dirs(accounts: List[LoginAccount], data_dir: Path) -> None:
@@ -385,15 +418,25 @@ def _capture_identity_for_account(account: Mapping[str, Any], payload: Mapping[s
     account_identity = raw_metrics.get("accountIdentity") if isinstance(raw_metrics, Mapping) else ""
     for value in (
         account_identity,
+        account.get("loginHint"),
         payload.get("loginAccount"),
         payload.get("subAccount"),
         account.get("lastKnownLoginAccount"),
-        account.get("loginHint"),
     ):
         text = str(value or "").strip()
         if text:
             return text
     return ""
+
+
+def _account_secret_text(account: Mapping[str, Any], key: str) -> str:
+    protected = str(account.get(key) or "").strip()
+    if not protected:
+        return ""
+    try:
+        return str(unprotect_text(protected) or "").strip()
+    except Exception:
+        return ""
 
 
 def _build_capture_summary(

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
+import secrets
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Mapping
 
@@ -12,7 +15,7 @@ import httpx
 from secure_storage import unprotect_text
 
 EMPLOYEE_UPLOAD_PATH = "/spider/upload"
-PLATFORM_TYPE_MAP = {"qn": 1, "jd": 2, "pdd": 3}
+PLATFORM_TYPE_MAP = {"qn": 1, "jd": 2, "pdd": 3, "douyin": 4}
 
 
 def _auth_config_path() -> Path:
@@ -59,17 +62,13 @@ class UploadClientError(RuntimeError):
 def build_employee_upload_payload(payload: Mapping[str, Any]) -> Dict[str, Any]:
     platform_str = str(payload.get("platform") or "qn").strip().lower()
     platform_type = PLATFORM_TYPE_MAP.get(platform_str, 1)
-    try:
-        shop_id = int(payload.get("shopId") or 0)
-    except Exception as exc:
-        raise UploadClientError("系统店铺 ID 必须是正整数。") from exc
-    if shop_id <= 0:
-        raise UploadClientError("系统店铺 ID 未绑定，请在账号里填写后端店铺 ID。")
+    login_account = str(payload.get("loginAccount") or "").strip()
+    if not login_account:
+        raise UploadClientError("loginAccount 不能为空，请确认采集结果包含登录账号。")
     reply_rate = payload.get("wwReplyRate")
     return {
-        "shopId": shop_id,
+        "loginAccount": login_account,
         "platformType": platform_type,
-        "loginAccount": payload.get("loginAccount"),
         "recordDate": payload.get("recordDate"),
         "subAccount": payload.get("subAccount"),
         "consultationCount": payload.get("consultationCount"),
@@ -96,17 +95,25 @@ def upload_employee_payload(server_url: str, payload: Mapping[str, Any], timeout
     request_payload = build_employee_upload_payload(payload)
     app_key, secret_key = resolve_upload_auth()
     timestamp = str(int(time.time()))
-    sign = hashlib.md5(f"{app_key}{timestamp}{secret_key}".encode("utf-8")).hexdigest()
+    request_id = str(uuid.uuid4())
+    nonce = secrets.token_urlsafe(24)
+    request_body = json.dumps(request_payload, ensure_ascii=False, separators=(",", ":"))
+    body_hash = hashlib.sha256(request_body.encode("utf-8")).hexdigest()
+    sign_payload = f"{app_key}\n{timestamp}\n{request_id}\n{nonce}\n{EMPLOYEE_UPLOAD_PATH}\n{body_hash}"
+    sign = hmac.new(secret_key.encode("utf-8"), sign_payload.encode("utf-8"), hashlib.sha256).hexdigest()
     url = f"{base_url}{EMPLOYEE_UPLOAD_PATH}"
     headers = {
         "X-App-Key": app_key,
         "X-Timestamp": timestamp,
+        "X-Request-Id": request_id,
+        "X-Nonce": nonce,
+        "X-Body-SHA256": body_hash,
         "X-Sign": sign,
         "Content-Type": "application/json; charset=utf-8",
     }
 
     try:
-        response = httpx.post(url, json=request_payload, headers=headers, timeout=timeout_seconds)
+        response = httpx.post(url, content=request_body.encode("utf-8"), headers=headers, timeout=timeout_seconds)
     except httpx.HTTPError as exc:
         raise UploadClientError(f"请求服务端失败：{exc}") from exc
 

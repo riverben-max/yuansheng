@@ -7,6 +7,9 @@
         SELECT COALESCE(SUM(sales_amount), 0)
         FROM biz_spider_data
         WHERE DATE(record_date) = CURDATE()
+        <if test="branchId != null">
+          AND branch_id = #{branchId}
+        </if>
     </select>
 
     <!-- 近30天销售额 -->
@@ -14,22 +17,37 @@
         SELECT COALESCE(SUM(sales_amount), 0)
         FROM biz_spider_data
         WHERE record_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+        <if test="branchId != null">
+          AND branch_id = #{branchId}
+        </if>
     </select>
 
     <!-- 在职员工数 -->
     <select id="countActiveEmployees" resultType="java.lang.Integer">
-        SELECT COUNT(*) FROM biz_employee WHERE status = '0'
+        SELECT COUNT(*)
+        FROM biz_employee e
+        LEFT JOIN sys_user u ON e.user_id = u.user_id
+        WHERE e.status = '0'
+        <if test="branchId != null">
+          AND u.dept_id = #{branchId}
+        </if>
     </select>
 
     <!-- 运营店铺数（有采集记录的不重复店铺） -->
     <select id="countActiveShops" resultType="java.lang.Integer">
         SELECT COUNT(DISTINCT shop_id) FROM biz_spider_data
+        <where>
+            <if test="branchId != null">branch_id = #{branchId}</if>
+        </where>
     </select>
 
     <!-- 今日采集条数 -->
     <select id="countTodayUploads" resultType="java.lang.Integer">
         SELECT COUNT(*) FROM biz_spider_data
         WHERE DATE(record_date) = CURDATE()
+        <if test="branchId != null">
+          AND branch_id = #{branchId}
+        </if>
     </select>
 
     <!-- 今日接待人数汇总 -->
@@ -37,6 +55,9 @@
         SELECT COALESCE(SUM(consultation_count), 0)
         FROM biz_spider_data
         WHERE DATE(record_date) = CURDATE()
+        <if test="branchId != null">
+          AND branch_id = #{branchId}
+        </if>
     </select>
 
     <!-- 近30天接待人数总量 -->
@@ -44,6 +65,9 @@
         SELECT COALESCE(SUM(consultation_count), 0)
         FROM biz_spider_data
         WHERE record_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+        <if test="branchId != null">
+          AND branch_id = #{branchId}
+        </if>
     </select>
 
     <!-- 今日操作员数 -->
@@ -52,18 +76,27 @@
         FROM biz_spider_data
         WHERE DATE(record_date) = CURDATE()
           AND employee_id IS NOT NULL
+        <if test="branchId != null">
+          AND branch_id = #{branchId}
+        </if>
     </select>
 
     <!-- 今日异常数 -->
     <select id="countTodayAbnormal" resultType="java.lang.Integer">
         SELECT COUNT(*) FROM biz_spider_data
         WHERE DATE(record_date) = CURDATE() AND is_abnormal = 1
+        <if test="branchId != null">
+          AND branch_id = #{branchId}
+        </if>
     </select>
 
     <!-- 今日正常数 -->
     <select id="countTodayNormal" resultType="java.lang.Integer">
         SELECT COUNT(*) FROM biz_spider_data
         WHERE DATE(record_date) = CURDATE() AND is_abnormal = 0
+        <if test="branchId != null">
+          AND branch_id = #{branchId}
+        </if>
     </select>
 
     <!-- 今日高危（3分钟响应率 < 50%） -->
@@ -72,6 +105,9 @@
         WHERE DATE(record_date) = CURDATE()
           AND response_rate_3m IS NOT NULL
           AND response_rate_3m &lt; 50
+        <if test="branchId != null">
+          AND branch_id = #{branchId}
+        </if>
     </select>
 
     <!-- 本月累计异常 -->
@@ -80,6 +116,9 @@
         WHERE YEAR(record_date) = YEAR(CURDATE())
           AND MONTH(record_date) = MONTH(CURDATE())
           AND is_abnormal = 1
+        <if test="branchId != null">
+          AND branch_id = #{branchId}
+        </if>
     </select>
 
     <!-- 近7天趋势 -->
@@ -90,6 +129,9 @@
             SUM(CASE WHEN is_abnormal = 1 THEN 1 ELSE 0 END) AS abnormalCount
         FROM biz_spider_data
         WHERE record_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+        <if test="branchId != null">
+          AND branch_id = #{branchId}
+        </if>
         GROUP BY DATE(record_date), DATE_FORMAT(DATE(record_date), '%m-%d')
         ORDER BY DATE(record_date) ASC
     </select>
@@ -106,6 +148,9 @@
             sd.create_time AS uploadTime
         FROM biz_spider_data sd
         WHERE sd.is_abnormal = 1
+        <if test="branchId != null">
+          AND sd.branch_id = #{branchId}
+        </if>
         ORDER BY sd.create_time DESC
         LIMIT 5
     </select>

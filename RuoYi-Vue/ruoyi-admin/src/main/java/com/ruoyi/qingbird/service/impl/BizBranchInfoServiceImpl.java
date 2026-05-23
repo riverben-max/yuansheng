@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.qingbird.mapper.BizBranchInfoMapper;
 import com.ruoyi.qingbird.domain.BizBranchInfo;
 import com.ruoyi.qingbird.service.IBizBranchInfoService;
+import com.ruoyi.qingbird.service.support.InitialPasswordPolicy;
 import com.ruoyi.system.mapper.SysRoleMapper;
 import com.ruoyi.system.service.ISysDeptService;
 import com.ruoyi.system.service.ISysUserService;
@@ -58,24 +59,21 @@ public class BizBranchInfoServiceImpl implements IBizBranchInfoService {
 
     @Override
     public int submitBranchInfo(BizBranchInfo bizBranchInfo) {
+        Long deptId = SecurityUtils.getDeptId();
         normalizeJsonFields(bizBranchInfo);
         validateBranchMaterials(bizBranchInfo);
+        bizBranchInfo.setBranchId(deptId);
         bizBranchInfo.setAuditStatus(1); // 提交流程后变为 待审核
-        
-        // 如果是全新提交（找不到ID则校验 branchId 是否存在记录）
-        if (bizBranchInfo.getId() == null) {
-            Long deptId = SecurityUtils.getDeptId();
-            BizBranchInfo existing = bizBranchInfoMapper.selectBizBranchInfoByBranchId(deptId);
-            if (existing != null) {
-                bizBranchInfo.setId(existing.getId());
-            } else {
-                bizBranchInfo.setBranchId(deptId);
-                bizBranchInfo.setCreateTime(DateUtils.getNowDate());
-                bizBranchInfo.setCreateBy(SecurityUtils.getUsername());
-                return bizBranchInfoMapper.insertBizBranchInfo(bizBranchInfo);
-            }
+
+        BizBranchInfo existing = bizBranchInfoMapper.selectBizBranchInfoByBranchId(deptId);
+        if (existing == null) {
+            bizBranchInfo.setId(null);
+            bizBranchInfo.setCreateTime(DateUtils.getNowDate());
+            bizBranchInfo.setCreateBy(SecurityUtils.getUsername());
+            return bizBranchInfoMapper.insertBizBranchInfo(bizBranchInfo);
         }
-        
+
+        bizBranchInfo.setId(existing.getId());
         bizBranchInfo.setUpdateTime(DateUtils.getNowDate());
         bizBranchInfo.setUpdateBy(SecurityUtils.getUsername());
         return bizBranchInfoMapper.updateBizBranchInfo(bizBranchInfo);
@@ -186,6 +184,9 @@ public class BizBranchInfoServiceImpl implements IBizBranchInfoService {
         if (StringUtils.isEmpty(bizBranchInfo.getManagerPassword())) {
             throw new ServiceException("主管初始密码不能为空");
         }
+        if (InitialPasswordPolicy.isWeak(bizBranchInfo.getManagerPassword())) {
+            throw new ServiceException("主管初始密码不能使用常见弱密码");
+        }
 
         SysRole managerRole = roleMapper.checkRoleKeyUnique("manager");
         if (managerRole == null) {
@@ -214,4 +215,5 @@ public class BizBranchInfoServiceImpl implements IBizBranchInfoService {
         }
         userService.insertUser(user);
     }
+
 }

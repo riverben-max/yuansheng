@@ -785,6 +785,76 @@ class BatchCaptureTests(unittest.TestCase):
         self.assertTrue(results[0]["ok"])
         self.assertEqual(accounts[0]["lastKnownLoginAccount"], "adapter-identity")
 
+    def test_account_identity_keeps_explicit_login_hint_before_last_known_identity(self) -> None:
+        state = {"serverUrl": "http://example.com", "uploadHistory": {}}
+        accounts = [
+            {
+                "id": "custom-account",
+                "platform": "pdd",
+                "displayName": "拼多多账号",
+                "enabled": True,
+                "cookieProtected": "dpapi:v1:cookie",
+                "loginHint": "manual-cs",
+                "lastKnownLoginAccount": "detected-old",
+            }
+        ]
+
+        def fake_capture(_config, _log):
+            return {
+                "loginAccount": "店铺名",
+                "recordDate": "2026-05-12",
+                "subAccount": "",
+            }
+
+        results = capture_enabled_accounts(
+            state,
+            accounts,
+            reason="手动采集",
+            capture_func=lambda _config, _log: {},
+            upload_func=lambda _state, _payload, _signature, _reason: ("服务端上传成功：上传成功。", {"uploadedAt": "2026-05-12 09:00:00"}),
+            log=lambda _message: None,
+            capture_adapters={"pdd": fake_capture},
+        )
+
+        self.assertTrue(results[0]["ok"])
+        self.assertEqual(accounts[0]["lastKnownLoginAccount"], "manual-cs")
+
+    def test_non_numeric_shop_id_is_treated_as_zero(self) -> None:
+        state = {"serverUrl": "http://example.com", "uploadHistory": {}}
+        accounts = [
+            {
+                "id": "bad-shop-id",
+                "platform": "jd",
+                "displayName": "京东账号",
+                "shopId": "not-a-number",
+                "enabled": True,
+                "cookieProtected": "dpapi:v1:cookie",
+            }
+        ]
+        seen = {}
+
+        def fake_capture(config, _log):
+            seen["shopId"] = config.get("shopId")
+            return {
+                "loginAccount": "京东店铺",
+                "recordDate": "2026-05-12",
+                "subAccount": "客服A",
+            }
+
+        results = capture_enabled_accounts(
+            state,
+            accounts,
+            reason="手动采集",
+            capture_func=lambda _config, _log: {},
+            upload_func=lambda _state, _payload, _signature, _reason: ("服务端上传成功：上传成功。", {"uploadedAt": "2026-05-12 09:00:00"}),
+            log=lambda _message: None,
+            capture_adapters={"jd": fake_capture},
+        )
+
+        self.assertTrue(results[0]["ok"])
+        self.assertEqual(seen["shopId"], 0)
+        self.assertEqual(results[0]["payload"]["shopId"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

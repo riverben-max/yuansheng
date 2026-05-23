@@ -81,6 +81,16 @@
         SELECT <include refid="selectColumns"/> FROM biz_employee WHERE id = #{id}
     </select>
 
+    <!-- 按登录账号精确查询 -->
+    <select id="selectEmployeeByLoginAccount" parameterType="String" resultMap="BizEmployeeResult">
+        SELECT <include refid="selectColumns"/> FROM biz_employee WHERE login_account = #{loginAccount}
+    </select>
+
+    <!-- 通过 userId 查 dept_id -->
+    <select id="selectBranchIdByUserId" parameterType="Long" resultType="Long">
+        SELECT dept_id FROM sys_user WHERE user_id = #{userId} LIMIT 1
+    </select>
+
     <!-- 新增 -->
     <insert id="insertEmployee" parameterType="com.ruoyi.qingbird.domain.BizEmployee"
             useGeneratedKeys="true" keyProperty="id">

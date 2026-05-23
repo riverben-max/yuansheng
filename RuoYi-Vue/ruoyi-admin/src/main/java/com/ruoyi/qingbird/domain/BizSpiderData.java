@@ -16,6 +16,8 @@ public class BizSpiderData extends BaseEntity {
     private Long shopId;
     private Long employeeId;
     private Long branchId;
+    private Integer platformType;
+    private String loginAccount;
 
     @JsonFormat(pattern = "yyyy-MM-dd")
     private Date recordDate;
@@ -52,6 +54,11 @@ public class BizSpiderData extends BaseEntity {
     private String rawMetrics;
     private String uploadIp;
     private Integer isAbnormal;
+    private String abnormalReason;
+
+    /** 联查字段（非数据库列） */
+    private transient String employeeName;
+    private transient String branchName;
 
     // ---- Getters & Setters ----
 
@@ -66,6 +73,12 @@ public class BizSpiderData extends BaseEntity {
 
     public Long getBranchId() { return branchId; }
     public void setBranchId(Long branchId) { this.branchId = branchId; }
+
+    public Integer getPlatformType() { return platformType; }
+    public void setPlatformType(Integer platformType) { this.platformType = platformType; }
+
+    public String getLoginAccount() { return loginAccount; }
+    public void setLoginAccount(String loginAccount) { this.loginAccount = loginAccount; }
 
     public Date getRecordDate() { return recordDate; }
     public void setRecordDate(Date recordDate) { this.recordDate = recordDate; }
@@ -117,4 +130,13 @@ public class BizSpiderData extends BaseEntity {
 
     public Integer getIsAbnormal() { return isAbnormal; }
     public void setIsAbnormal(Integer isAbnormal) { this.isAbnormal = isAbnormal; }
+
+    public String getAbnormalReason() { return abnormalReason; }
+    public void setAbnormalReason(String abnormalReason) { this.abnormalReason = abnormalReason; }
+
+    public String getEmployeeName() { return employeeName; }
+    public void setEmployeeName(String employeeName) { this.employeeName = employeeName; }
+
+    public String getBranchName() { return branchName; }
+    public void setBranchName(String branchName) { this.branchName = branchName; }
 }

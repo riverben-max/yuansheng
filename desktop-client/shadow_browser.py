@@ -277,9 +277,6 @@ def shadow_browser_closed_reason(config: Mapping[str, Any]) -> str:
     if expected_pid <= 0:
         return ""
     if not psutil.pid_exists(expected_pid):
-        profile_dir = _resolve_profile_dir(config)
-        if _find_shadow_processes(profile_dir, active_port):
-            return ""
         return "登录窗口进程已退出。"
     if active_port > 0 and not _port_is_open(active_port):
         return f"登录窗口调试端口 {active_port} 已关闭。"

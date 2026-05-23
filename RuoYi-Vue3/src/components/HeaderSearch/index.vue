@@ -45,8 +45,20 @@
                 <svg-icon class="menu-icon" :icon-class="item.icon" />
               </div>
               <div class="search-info" @click="change(item)">
-                <div class="menu-title" v-html="highlightText(item.title.join(' / '))"></div>
-                <div class="menu-path" v-html="highlightText(item.path)"></div>
+                <div class="menu-title">
+                  <span
+                    v-for="(part, partIndex) in highlightParts(item.title.join(' / '))"
+                    :key="`title-${item.path}-${partIndex}`"
+                    :class="{ highlight: part.highlighted }"
+                  >{{ part.text }}</span>
+                </div>
+                <div class="menu-path">
+                  <span
+                    v-for="(part, partIndex) in highlightParts(item.path)"
+                    :key="`path-${item.path}-${partIndex}`"
+                    :class="{ highlight: part.highlighted }"
+                  >{{ part.text }}</span>
+                </div>
               </div>
               <svg-icon icon-class="enter" v-show="index === activeIndex" />
             </div>
@@ -80,6 +92,8 @@
 import Fuse from 'fuse.js'
 import { getNormalPath } from '@/utils/ruoyi'
 import { isHttp } from '@/utils/validate'
+import { splitHighlightText } from '@/utils/safeHighlight'
+import { externalWindowFeatures, parseRouteQuery } from '@/utils/safeNavigation'
 import useSettingsStore from '@/store/modules/settings'
 import usePermissionStore from '@/store/modules/permission'
 
@@ -121,10 +135,10 @@ function change(val) {
   if (isHttp(p)) {
     // http(s):// 路径新窗口打开
     const pindex = p.indexOf("http")
-    window.open(p.substr(pindex, p.length), "_blank")
+    window.open(p.substr(pindex, p.length), "_blank", externalWindowFeatures)
   } else {
     if (query) {
-      router.push({ path: p, query: JSON.parse(query) })
+      router.push({ path: p, query: parseRouteQuery(query) })
     } else {
       router.push(p)
     }
@@ -224,16 +238,8 @@ function selectActiveResult() {
   }
 }
 
-function highlightText(text) {
-  if (!text) return ''
-  if (!search.value) return text
-  const keyword = escapeRegExp(search.value)
-  const reg = new RegExp(`(${keyword})`, 'gi')
-  return text.replace(reg, '<span class="highlight">$1</span>')
-}
-
-function escapeRegExp(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+function highlightParts(text) {
+  return splitHighlightText(text, search.value)
 }
 
 onMounted(() => {
@@ -250,12 +256,12 @@ watch(searchPool, (list) => {
   padding: 6px !important;
 }
 
-:deep(.highlight) {
+.highlight {
   color: red;
   font-weight: 600;
 }
 
-:deep(.is-active .highlight) {
+.is-active .highlight {
   color: rgba(255, 255, 255, 0.9);
   font-weight: 600;
 }

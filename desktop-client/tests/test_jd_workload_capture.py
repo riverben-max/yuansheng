@@ -90,7 +90,7 @@ class JdWorkloadCaptureTests(unittest.TestCase):
             state={"shopName": "京东菠萝店", "lastKnownLoginAccount": "if自营菠萝"},
         )
 
-        self.assertEqual(payload["loginAccount"], "京东菠萝店")
+        self.assertEqual(payload["loginAccount"], "if自营菠萝")
         self.assertEqual(payload["recordDate"], "2026-05-12")
         self.assertEqual(payload["subAccount"], "if自营菠萝")
         self.assertEqual(payload["consultationCount"], 58)
@@ -104,6 +104,7 @@ class JdWorkloadCaptureTests(unittest.TestCase):
         self.assertEqual(payload["satisfaction"], 75.0)
         self.assertEqual(payload["rawMetrics"]["source"], "jd_workload")
         self.assertEqual(payload["rawMetrics"]["accountIdentity"], "if自营菠萝")
+        self.assertEqual(payload["rawMetrics"]["shopName"], "京东菠萝店")
         self.assertEqual(payload["rawMetrics"]["requestParams"]["servicePin"], "if自营菠萝")
         self.assertEqual(payload["rawMetrics"]["rowData"]["onlineTime"], 16.2)
         self.assertEqual(payload["rawMetrics"]["totalDetail"]["consultNum"], 58)
@@ -134,6 +135,25 @@ class JdWorkloadCaptureTests(unittest.TestCase):
         with patch("jd_workload_capture.unprotect_text", return_value="pin=if自营菠萝; thor=token"):
             with self.assertRaises(JdWorkloadCaptureError):
                 capture_jd_workload({"cookieProtected": "dpapi:v1:cookie"}, lambda _message: None)
+
+    def test_service_pin_prefers_explicit_login_hint(self) -> None:
+        client = FakeClient(FakeResponse(200, SAMPLE_RESPONSE))
+
+        with patch("jd_workload_capture.unprotect_text", return_value="pin=if自营菠萝; thor=token"):
+            payload = capture_jd_workload(
+                {
+                    "cookieProtected": "dpapi:v1:cookie",
+                    "loginHint": "manual-pin",
+                    "lastKnownLoginAccount": "detected-pin",
+                    "shopName": "京东菠萝店",
+                },
+                lambda _message: None,
+                client=client,
+                today=date(2026, 5, 13),
+            )
+
+        self.assertEqual(client.calls[0][1]["params"]["servicePin"], "manual-pin")
+        self.assertEqual(payload["loginAccount"], "manual-pin")
 
     def test_capture_wraps_cookie_decrypt_failure_as_relogin(self) -> None:
         with patch("jd_workload_capture.unprotect_text", side_effect=Exception("bad dpapi")):
@@ -226,6 +246,24 @@ class JdWorkloadCaptureTests(unittest.TestCase):
                     lambda _message: None,
                     client=client,
                 )
+
+    def test_http_error_redacts_sensitive_response_body(self) -> None:
+        client = FakeClient(FakeResponse(500, {"code": "bad"}))
+        client.response.text = '{"cookie":"thor=secret-thor; pin=secret-pin","x-sign":"secret-sign","message":"bad"}'
+
+        with patch("jd_workload_capture.unprotect_text", return_value="pin=if自营菠萝; thor=token"):
+            with self.assertRaises(JdWorkloadCaptureError) as ctx:
+                capture_jd_workload(
+                    {"cookieProtected": "dpapi:v1:cookie", "lastKnownLoginAccount": "if自营菠萝"},
+                    lambda _message: None,
+                    client=client,
+                )
+
+        message = str(ctx.exception)
+        self.assertIn("响应摘要", message)
+        self.assertNotIn("secret-thor", message)
+        self.assertNotIn("secret-pin", message)
+        self.assertNotIn("secret-sign", message)
 
     def test_capture_wraps_http_transport_errors(self) -> None:
         class BrokenClient:

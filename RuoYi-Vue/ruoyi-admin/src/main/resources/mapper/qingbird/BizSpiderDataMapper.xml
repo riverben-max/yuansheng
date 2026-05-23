@@ -9,6 +9,8 @@
         <result property="shopId"                   column="shop_id"                   />
         <result property="employeeId"               column="employee_id"               />
         <result property="branchId"                 column="branch_id"                 />
+        <result property="platformType"             column="platform_type"             />
+        <result property="loginAccount"             column="login_account"             />
         <result property="recordDate"               column="record_date"               />
         <result property="subAccount"               column="sub_account"               />
         <result property="consultationCount"        column="consultation_count"        />
@@ -26,19 +28,27 @@
         <result property="rawMetrics"               column="raw_metrics"               />
         <result property="uploadIp"                 column="upload_ip"                 />
         <result property="isAbnormal"               column="is_abnormal"               />
+        <result property="abnormalReason"            column="abnormal_reason"            />
         <result property="createTime"               column="create_time"               />
         <result property="updateTime"               column="update_time"               />
+        <!-- 联查字段 -->
+        <result property="employeeName"             column="employee_name"             />
+        <result property="branchName"               column="branch_name"               />
     </resultMap>
 
     <sql id="selectSpiderDataVO">
-        select d.id, d.shop_id, d.employee_id, s.branch_id, d.record_date, d.sub_account,
+        select d.id, d.shop_id, d.employee_id, d.branch_id, d.platform_type, d.login_account,
+               d.record_date, d.sub_account,
                d.consultation_count, d.reception_count, d.effective_reception_count,
                d.conversion_rate, d.first_response_time, d.avg_response_time,
                d.sales_amount, d.response_rate_3m, d.response_rate_30s,
                d.reply_rate, d.satisfaction, d.shop_satisfaction,
-               d.raw_metrics, d.upload_ip, d.is_abnormal, d.create_time, d.update_time
+               d.raw_metrics, d.upload_ip, d.is_abnormal, d.abnormal_reason, d.create_time, d.update_time,
+               e.name as employee_name,
+               dept.dept_name as branch_name
         from biz_spider_data d
-        left join biz_shop s on d.shop_id = s.shop_id
+        left join biz_employee e on d.employee_id = e.id
+        left join sys_dept dept on d.branch_id = dept.dept_id
     </sql>
 
     <select id="selectSpiderDataList" parameterType="com.ruoyi.qingbird.domain.BizSpiderData" resultMap="BizSpiderDataResult">
@@ -46,7 +56,9 @@
         <where>
             <if test="shopId != null">and d.shop_id = #{shopId}</if>
             <if test="employeeId != null">and d.employee_id = #{employeeId}</if>
-            <if test="branchId != null">and s.branch_id = #{branchId}</if>
+            <if test="branchId != null">and d.branch_id = #{branchId}</if>
+            <if test="platformType != null">and d.platform_type = #{platformType}</if>
+            <if test="loginAccount != null and loginAccount != ''">and d.login_account = #{loginAccount}</if>
             <if test="recordDate != null">and d.record_date = #{recordDate}</if>
             <if test="subAccount != null and subAccount != ''">and d.sub_account = #{subAccount}</if>
             <if test="isAbnormal != null">and d.is_abnormal = #{isAbnormal}</if>
@@ -60,27 +72,31 @@
     </select>
 
     <!--
-        Upsert：唯一键 (shop_id, record_date, sub_account)
-        重复时更新所有业务字段，保留首次 create_time。
+        Upsert：唯一键 (login_account, platform_type, record_date, sub_account)
+        employee_id 可为 null（无档案时），重复时更新所有业务字段，保留首次 create_time。
     -->
     <insert id="upsertSpiderData" parameterType="com.ruoyi.qingbird.domain.BizSpiderData" useGeneratedKeys="true" keyProperty="id">
         insert into biz_spider_data (
-            shop_id, employee_id, record_date, sub_account,
+            employee_id, branch_id, platform_type, login_account,
+            record_date, sub_account,
             consultation_count, reception_count, effective_reception_count,
             conversion_rate, first_response_time, avg_response_time,
             sales_amount, response_rate_3m, response_rate_30s,
             reply_rate, satisfaction, shop_satisfaction,
-            raw_metrics, upload_ip, is_abnormal, create_time
+            raw_metrics, upload_ip, is_abnormal, abnormal_reason, create_time
         ) values (
-            #{shopId}, #{employeeId}, #{recordDate}, #{subAccount},
+            #{employeeId}, #{branchId}, #{platformType}, #{loginAccount},
+            #{recordDate}, #{subAccount},
             #{consultationCount}, #{receptionCount}, #{effectiveReceptionCount},
             #{conversionRate}, #{firstResponseTime}, #{avgResponseTime},
             #{salesAmount}, #{responseRate3m}, #{responseRate30s},
             #{replyRate}, #{satisfaction}, #{shopSatisfaction},
-            #{rawMetrics}, #{uploadIp}, #{isAbnormal}, sysdate()
+            #{rawMetrics}, #{uploadIp}, #{isAbnormal}, #{abnormalReason}, sysdate()
         )
         on duplicate key update
             employee_id               = values(employee_id),
+            branch_id                 = values(branch_id),
+            login_account             = values(login_account),
             consultation_count        = values(consultation_count),
             reception_count           = values(reception_count),
             effective_reception_count = values(effective_reception_count),
@@ -96,6 +112,7 @@
             raw_metrics               = values(raw_metrics),
             upload_ip                 = values(upload_ip),
             is_abnormal               = values(is_abnormal),
+            abnormal_reason           = values(abnormal_reason),
             update_time               = sysdate()
     </insert>
 

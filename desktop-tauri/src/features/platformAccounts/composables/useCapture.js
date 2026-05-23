@@ -30,7 +30,7 @@ export function useCapture(callSidecar, refreshState, applyState) {
     }
     captureBusy.value = true;
     try {
-      await runCapture("capture_all", {});
+      await runCapture("capture_all", { platform: normalizePlatform(platform) });
     } finally {
       captureBusy.value = false;
     }
@@ -39,6 +39,7 @@ export function useCapture(callSidecar, refreshState, applyState) {
 
   async function captureAccount(account) {
     if (captureBusy.value) return { blocked: true, hint: "采集进行中，请稍后再试" };
+    if (account?.enabled === false) return { blocked: true, hint: "账号已禁用，不能采集" };
     captureBusy.value = true;
     try {
       await runCapture("capture_account", { accountId: account.id });
@@ -50,6 +51,7 @@ export function useCapture(callSidecar, refreshState, applyState) {
 
   async function captureAccountDirect(account) {
     if (captureBusy.value) return { blocked: true, hint: "采集进行中，请稍后再试" };
+    if (account?.enabled === false) return { blocked: true, hint: "账号已禁用，不能采集" };
     captureBusy.value = true;
     try {
       await runCapture("capture_account_direct", { accountId: account.id });

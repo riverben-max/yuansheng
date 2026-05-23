@@ -183,23 +183,26 @@ SET shop_name = '演示一号店铺',
 WHERE shop_key = 'DEMO_SHOP_001';
 
 INSERT INTO biz_spider_data (
-  shop_id, employee_id, record_date, sub_account,
+  shop_id, employee_id, branch_id, platform_type, login_account, record_date, sub_account,
   consultation_count, reception_count, effective_reception_count,
   conversion_rate, first_response_time, avg_response_time,
   sales_amount, response_rate_3m, response_rate_30s,
   reply_rate, satisfaction, shop_satisfaction,
   raw_metrics, upload_ip, is_abnormal, create_time
 )
-SELECT 22001, u.user_id, CURDATE(), 'demo_kf_001',
+SELECT 22001, e.id, 2201, 1, 'demo_kf_001', CURDATE(), 'demo_kf_001',
        36, 34, 30,
        18.50, 22, 48,
        12888.00, 96.00, 88.00,
        98.00, 99.00, 98.00,
        '{"source":"qingbird_demo_seed"}', '127.0.0.1', 0, NOW()
-FROM sys_user u
-WHERE u.user_name = 'demo_kf_001'
+FROM biz_employee e
+WHERE e.login_account = 'demo_kf_001'
 ON DUPLICATE KEY UPDATE
   employee_id = VALUES(employee_id),
+  branch_id = VALUES(branch_id),
+  platform_type = VALUES(platform_type),
+  login_account = VALUES(login_account),
   consultation_count = VALUES(consultation_count),
   reception_count = VALUES(reception_count),
   effective_reception_count = VALUES(effective_reception_count),

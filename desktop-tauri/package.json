@@ -7,7 +7,9 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
+    "build:sidecar": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build_sidecar.ps1",
     "tauri:dev": "tauri dev",
+    "pretauri:build": "npm run build:sidecar",
     "tauri:build": "tauri build"
   },
   "dependencies": {

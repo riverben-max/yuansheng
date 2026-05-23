@@ -6,10 +6,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.alibaba.fastjson2.JSON;
 import com.ruoyi.common.utils.SecurityUtils;
-import com.ruoyi.qingbird.domain.BizShop;
+import com.ruoyi.qingbird.domain.BizEmployee;
 import com.ruoyi.qingbird.domain.BizSpiderData;
 import com.ruoyi.qingbird.domain.dto.SpiderDataUploadDTO;
-import com.ruoyi.qingbird.mapper.BizShopMapper;
+import com.ruoyi.qingbird.mapper.BizEmployeeMapper;
 import com.ruoyi.qingbird.mapper.BizSpiderDataMapper;
 import com.ruoyi.qingbird.service.IBizSpiderDataService;
 
@@ -20,7 +20,7 @@ public class BizSpiderDataServiceImpl implements IBizSpiderDataService {
     private BizSpiderDataMapper bizSpiderDataMapper;
 
     @Autowired
-    private BizShopMapper bizShopMapper;
+    private BizEmployeeMapper bizEmployeeMapper;
 
     @Override
     public BizSpiderData selectSpiderDataById(Long id) {
@@ -37,29 +37,39 @@ public class BizSpiderDataServiceImpl implements IBizSpiderDataService {
 
     @Override
     public int handleSpiderUpload(SpiderDataUploadDTO uploadDTO, String uploadIp) {
+        if (uploadDTO.getLoginAccount() == null || uploadDTO.getLoginAccount().isBlank()) {
+            throw new IllegalArgumentException("loginAccount 不能为空，请填写客服平台登录账号。");
+        }
+        if (uploadDTO.getPlatformType() == null) {
+            throw new IllegalArgumentException("platformType 不能为空。");
+        }
+        if (uploadDTO.getRecordDate() == null) {
+            throw new IllegalArgumentException("recordDate 不能为空。");
+        }
+
+        // 按 loginAccount 查员工档案（找不到时允许继续，标记异常）
+        BizEmployee employee = bizEmployeeMapper.selectEmployeeByLoginAccount(uploadDTO.getLoginAccount().trim());
+
+        Long employeeId = null;
+        Long branchId = null;
+        String abnormalReason = null;
+        if (employee == null) {
+            abnormalReason = "系统无对应客服档案";
+        } else {
+            employeeId = employee.getId();
+            if (employee.getUserId() != null) {
+                branchId = bizEmployeeMapper.selectBranchIdByUserId(employee.getUserId());
+            }
+        }
+
         BizSpiderData data = new BizSpiderData();
-        data.setShopId(uploadDTO.getShopId());
-
-        BizShop shop = bizShopMapper.selectBizShopById(uploadDTO.getShopId());
-        if (shop == null) {
-            throw new IllegalArgumentException("系统店铺不存在，请先在店铺管理中登记 shopId=" + uploadDTO.getShopId());
-        }
-        if (shop.getEmployeeId() == null || shop.getEmployeeId() <= 0) {
-            throw new IllegalArgumentException("系统店铺未绑定员工，无法保存采集数据。shopId=" + uploadDTO.getShopId());
-        }
-        if (shop.getPlatformType() == null) {
-            throw new IllegalArgumentException("系统店铺未配置平台类型，无法校验上传数据。shopId=" + uploadDTO.getShopId());
-        }
-        if (!uploadDTO.getPlatformType().equals(shop.getPlatformType())) {
-            throw new IllegalArgumentException("上传平台类型与系统店铺平台不一致。shopId=" + uploadDTO.getShopId());
-        }
-        data.setEmployeeId(shop.getEmployeeId());
-
+        data.setEmployeeId(employeeId);
+        data.setBranchId(branchId);
+        data.setPlatformType(uploadDTO.getPlatformType());
+        data.setLoginAccount(uploadDTO.getLoginAccount().trim());
         data.setRecordDate(uploadDTO.getRecordDate());
-        // 子账号为空时默认空字符串（匹配唯一键 NOT NULL DEFAULT ''）
         data.setSubAccount(uploadDTO.getSubAccount() != null ? uploadDTO.getSubAccount() : "");
 
-        // 采集字段映射
         data.setConsultationCount(uploadDTO.getConsultationCount());
         data.setReceptionCount(uploadDTO.getReceptionCount());
         data.setEffectiveReceptionCount(uploadDTO.getEffectiveReceptionCount());
@@ -78,10 +88,14 @@ public class BizSpiderDataServiceImpl implements IBizSpiderDataService {
             data.setRawMetrics(JSON.toJSONString(uploadDTO.getRawMetrics()));
         }
 
-        // 预警逻辑：3分钟回复率 < 50% 则标记异常
-        if (uploadDTO.getResponseRate3m() != null &&
+        // 预警逻辑：无档案 or 3分钟回复率 < 50% 则标记异常
+        if (abnormalReason != null) {
+            data.setIsAbnormal(1);
+            data.setAbnormalReason(abnormalReason);
+        } else if (uploadDTO.getResponseRate3m() != null &&
             uploadDTO.getResponseRate3m().compareTo(new BigDecimal("50.0")) < 0) {
             data.setIsAbnormal(1);
+            data.setAbnormalReason("3分钟回复率低于50%");
         } else {
             data.setIsAbnormal(0);
         }

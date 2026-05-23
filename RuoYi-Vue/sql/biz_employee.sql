@@ -5,7 +5,7 @@ DROP TABLE IF EXISTS `biz_employee`;
 CREATE TABLE `biz_employee` (
   `id`               BIGINT(20) NOT NULL AUTO_INCREMENT          COMMENT '主键',
   `user_id`          BIGINT(20) DEFAULT NULL                     COMMENT '绑定系统用户ID',
-  `login_account`    VARCHAR(50) DEFAULT ''                      COMMENT '登录账号',
+  `login_account`    VARCHAR(50) DEFAULT NULL                    COMMENT '登录账号',
   `id_card`          VARCHAR(18) DEFAULT ''                      COMMENT '身份证号',
   `address`          VARCHAR(255) DEFAULT ''                     COMMENT '联系地址',
   `branch_code`      VARCHAR(50)  NOT NULL                       COMMENT '所属分公司编号',
@@ -28,7 +28,8 @@ CREATE TABLE `biz_employee` (
   `create_time`      DATETIME                                    COMMENT '创建时间',
   `update_by`        VARCHAR(64)  DEFAULT ''                     COMMENT '更新者',
   `update_time`      DATETIME                                    COMMENT '更新时间',
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_biz_employee_login_account` (`login_account`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COMMENT='分公司员工花名册';
 
 -- 插入样例数据
