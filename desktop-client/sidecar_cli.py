@@ -56,7 +56,7 @@ from shadow_browser import (
 )
 from spider_core import EMPLOYEE_TARGET_URL, format_employee_summary, payload_signature
 from startup_manager import ensure_autostart, is_autostart_enabled
-from upload_client import UploadClientError, upload_employee_payload
+from upload_client import UploadClientError, upload_employee_payload, ensure_default_auth_config
 
 APP_NAME = "远盛数据助手"
 SIDECAR_VERSION = "1.0.0"
@@ -139,6 +139,7 @@ class SidecarApp:
         self.pdd_capture_func = pdd_capture_func or capture_pdd_workload
         self.douyin_capture_func = douyin_capture_func or capture_douyin_workload
         self.upload_func = upload_func or upload_payload_with_state
+        ensure_default_auth_config()
 
     def _qn_capture_with_refresh(self, state: Mapping[str, Any], log: Callable[[str], None]) -> Mapping[str, Any]:
         """千牛采集：如果 _m_h5_tk 未过期直接采集，否则先刷新再采集。"""

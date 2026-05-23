@@ -23,6 +23,24 @@ def _auth_config_path() -> Path:
     return Path(base) / "YuanshengDataAssistant" / "data" / "auth_config.json"
 
 
+# 预置凭据（明文，随安装包分发；首次运行时写入 auth_config.json）
+_PRESET_APP_KEY = "QINGBIRD_RPA_01"
+_PRESET_SECRET_KEY = "8c7v6b5n4m3,2.1/"
+
+
+def ensure_default_auth_config() -> None:
+    """如果 auth_config.json 不存在，写入预置凭据。"""
+    auth_path = _auth_config_path()
+    if auth_path.exists():
+        return
+    try:
+        auth_path.parent.mkdir(parents=True, exist_ok=True)
+        config = {"appKey": _PRESET_APP_KEY, "secretKey": _PRESET_SECRET_KEY}
+        auth_path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+    except Exception:
+        pass
+
+
 def _load_auth_config() -> Dict[str, Any]:
     auth_path = _auth_config_path()
     try:
@@ -43,6 +61,7 @@ def resolve_upload_auth() -> tuple[str, str]:
 
     config = _load_auth_config()
     app_key = str(config.get("appKey") or "").strip()
+    # 优先用 DPAPI 加密的 secretKeyProtected，其次支持明文 secretKey（用于预置安装包）
     protected_secret = str(config.get("secretKeyProtected") or "").strip()
     if app_key and protected_secret:
         try:
@@ -51,6 +70,10 @@ def resolve_upload_auth() -> tuple[str, str]:
             raise UploadClientError(f"上传签名凭据解密失败：{exc}") from exc
         if secret_key:
             return app_key, secret_key
+
+    plain_secret = str(config.get("secretKey") or "").strip()
+    if app_key and plain_secret:
+        return app_key, plain_secret
 
     raise UploadClientError("未配置上传签名凭据，请设置 YUANSHENG_RPA_APP_KEY/YUANSHENG_RPA_SECRET_KEY 或 auth_config.json。")
 
