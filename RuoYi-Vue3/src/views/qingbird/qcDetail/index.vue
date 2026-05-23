@@ -105,6 +105,15 @@
             <el-tag v-else type="success" size="small">✅ 正常</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="操作" width="80" align="center" fixed="right" v-if="isAdmin">
+          <template #default="{ row }">
+            <el-button
+              link type="danger" size="small"
+              v-hasPermi="['qingbird:spider:remove']"
+              @click="handleDelete(row)"
+            >删除</el-button>
+          </template>
+        </el-table-column>
       </el-table>
 
       <!-- 分页 -->
@@ -125,7 +134,7 @@
 <script setup name="QingbirdQcDetail">
 import { ref, computed, onMounted } from 'vue'
 import { Search, Refresh } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/utils/request'
 import useUserStore from '@/store/modules/user'
 import { listBranchInfo } from '@/api/qingbird/branchInfo'
@@ -185,6 +194,15 @@ const fetchData = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const handleDelete = async (row) => {
+  await ElMessageBox.confirm(`确认删除 ${row.subAccount || '该条'} (${row.recordDate?.slice(0,10)}) 的采集记录？`, '删除确认', {
+    type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消'
+  })
+  await request({ url: `/qingbird/spider-data/${row.id}`, method: 'delete' })
+  ElMessage.success('删除成功')
+  fetchData()
 }
 
 const resetQuery = () => {

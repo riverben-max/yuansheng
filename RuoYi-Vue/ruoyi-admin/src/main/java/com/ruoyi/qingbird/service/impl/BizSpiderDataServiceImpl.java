@@ -102,4 +102,9 @@ public class BizSpiderDataServiceImpl implements IBizSpiderDataService {
 
         return bizSpiderDataMapper.upsertSpiderData(data);
     }
+
+    @Override
+    public int deleteSpiderDataById(Long id) {
+        return bizSpiderDataMapper.deleteSpiderDataById(id);
+    }
 }

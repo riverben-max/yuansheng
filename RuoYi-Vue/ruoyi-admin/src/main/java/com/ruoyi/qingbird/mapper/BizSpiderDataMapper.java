@@ -18,4 +18,9 @@ public interface BizSpiderDataMapper {
      * 新增或更新（Upsert，按 shop_id 和 record_date）
      */
     int upsertSpiderData(BizSpiderData bizSpiderData);
+
+    /**
+     * 根据 ID 删除
+     */
+    int deleteSpiderDataById(Long id);
 }

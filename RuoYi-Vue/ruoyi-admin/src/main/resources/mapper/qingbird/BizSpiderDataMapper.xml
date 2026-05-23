@@ -116,4 +116,8 @@
             update_time               = sysdate()
     </insert>
 
+    <delete id="deleteSpiderDataById">
+        DELETE FROM biz_spider_data WHERE id = #{id}
+    </delete>
+
 </mapper>

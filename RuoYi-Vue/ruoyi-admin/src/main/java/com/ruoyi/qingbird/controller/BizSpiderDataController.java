@@ -3,10 +3,13 @@ package com.ruoyi.qingbird.controller;
 import java.util.List;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.common.core.controller.BaseController;
+import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.qingbird.domain.BizSpiderData;
 import com.ruoyi.qingbird.service.IBizSpiderDataService;
@@ -30,5 +33,14 @@ public class BizSpiderDataController extends BaseController {
         startPage();
         List<BizSpiderData> list = bizSpiderDataService.selectSpiderDataList(bizSpiderData);
         return getDataTable(list);
+    }
+
+    /**
+     * 删除质检明细记录
+     */
+    @PreAuthorize("@ss.hasPermi('qingbird:spider:remove')")
+    @DeleteMapping("/{id}")
+    public AjaxResult remove(@PathVariable Long id) {
+        return toAjax(bizSpiderDataService.deleteSpiderDataById(id));
     }
 }

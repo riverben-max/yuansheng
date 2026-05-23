@@ -20,4 +20,9 @@ public interface IBizSpiderDataService {
      * 客户端上传采集数据处理（Upsert）
      */
     int handleSpiderUpload(SpiderDataUploadDTO uploadDTO, String uploadIp);
+
+    /**
+     * 根据 ID 删除
+     */
+    int deleteSpiderDataById(Long id);
 }
