@@ -7,14 +7,17 @@ import com.fasterxml.jackson.annotation.JsonFormat;
 
 /**
  * 爬虫客户端上传数据 DTO
- * 对应各平台（千牛/京东/拼多多）客服绩效采集字段
+ * 对应各平台（千牛/京东/拼多多/抖店）客服绩效采集字段
  */
 public class SpiderDataUploadDTO {
 
-    /** 店铺ID（在本系统中注册的 biz_shop.shop_id） */
+    /** 登录账号（客服平台账号，用于关联 biz_employee.login_account） */
+    private String loginAccount;
+
+    /** 店铺ID（可选，兼容旧版；优先使用 loginAccount 查员工） */
     private Long shopId;
 
-    /** 平台类型：1=淘宝/千牛，2=京东，3=拼多多 */
+    /** 平台类型：1=淘宝/千牛，2=京东，3=拼多多，4=抖店 */
     private Integer platformType;
 
     /** 数据日期，格式 yyyy-MM-dd */
@@ -53,6 +56,9 @@ public class SpiderDataUploadDTO {
     private Map<String, Object> rawMetrics;
 
     // ---- Getters & Setters ----
+
+    public String getLoginAccount() { return loginAccount; }
+    public void setLoginAccount(String loginAccount) { this.loginAccount = loginAccount; }
 
     public Long getShopId() { return shopId; }
     public void setShopId(Long shopId) { this.shopId = shopId; }

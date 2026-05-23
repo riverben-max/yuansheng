@@ -151,7 +151,7 @@
           <span>发布时间：{{ parseTime(previewDoc.createTime) }}</span>
         </div>
         <el-divider border-style="dashed" />
-        <div class="article-content ql-editor" v-html="previewDoc.content"></div>
+        <div class="article-content ql-editor" v-html="sanitizedPreviewContent"></div>
       </div>
     </el-dialog>
 
@@ -160,6 +160,7 @@
 
 <script setup name="QingbirdDocs">
 import { listDoc, getDoc, delDoc, addDoc, updateDoc } from "@/api/qingbird/doc";
+import { sanitizeRichText } from "@/utils/richText";
 
 const { proxy } = getCurrentInstance();
 const { biz_cloud_doc_category } = proxy.useDict('biz_cloud_doc_category');
@@ -177,6 +178,7 @@ const title = ref("");
 
 const previewTitle = ref("文章预览");
 const previewDoc = ref({});
+const sanitizedPreviewContent = computed(() => sanitizeRichText(previewDoc.value?.content));
 
 const data = reactive({
   form: {},

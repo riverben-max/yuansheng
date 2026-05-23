@@ -12,17 +12,26 @@
         </div>
       </div>
       <div class="emp-header-actions">
-        <el-button v-if="isAdmin" :icon="Plus" @click="goBranchPage" style="border-radius:8px;">
+        <el-button v-hasPermi="['qingbird:branchInfo:add']" :icon="Plus" @click="goBranchPage" style="border-radius:8px;">
           新增分公司
         </el-button>
-        <el-button :icon="Download" @click="handleExport" style="border-radius:8px;">
+        <el-button v-hasPermi="['qingbird:employee:export']" :icon="Download" :disabled="!canUseSeatBusiness" @click="handleExport" style="border-radius:8px;">
           导出 CSV
         </el-button>
-        <el-button class="qb-btn-primary" :icon="Plus" @click="openAddDialog">
+        <el-button v-hasPermi="['qingbird:employee:add']" class="qb-btn-primary" :icon="Plus" :disabled="!canUseSeatBusiness" @click="openAddDialog">
           录入客服坐席
         </el-button>
       </div>
     </div>
+
+    <el-alert
+      v-if="!canUseSeatBusiness"
+      :title="branchScopeMessage"
+      type="warning"
+      show-icon
+      :closable="false"
+      class="scope-alert"
+    />
 
     <!-- 搜索栏 -->
     <div class="qb-card search-bar">
@@ -45,6 +54,7 @@
         v-model="queryForm.name"
         placeholder="搜索姓名、登录账号..."
         :prefix-icon="Search"
+        :disabled="!canUseSeatBusiness"
         clearable
         @keyup.enter="fetchData"
         style="width: 320px;"
@@ -52,6 +62,7 @@
       <el-select
         v-model="queryForm.department"
         placeholder="部门：全部门"
+        :disabled="!canUseSeatBusiness"
         clearable
         style="width: 140px; margin-left: 12px;"
         @change="fetchData"
@@ -64,6 +75,7 @@
       <el-select
         v-model="queryForm.status"
         placeholder="在职状态"
+        :disabled="!canUseSeatBusiness"
         clearable
         style="width: 120px; margin-left: 8px;"
         @change="fetchData"
@@ -71,7 +83,7 @@
         <el-option label="在职" value="0" />
         <el-option label="离职" value="1" />
       </el-select>
-      <el-button class="qb-btn-primary" :icon="Search" @click="fetchData" style="margin-left: 8px;">
+      <el-button v-hasPermi="['qingbird:employee:list']" class="qb-btn-primary" :icon="Search" :disabled="!canUseSeatBusiness" @click="fetchData" style="margin-left: 8px;">
         搜 索
       </el-button>
     </div>
@@ -82,7 +94,7 @@
         :data="tableData"
         v-loading="loading"
         style="width: 100%"
-        empty-text="暂无数据，点击「录入客服坐席」添加"
+        :empty-text="tableEmptyText"
       >
         <!-- 员工基本信息 -->
         <el-table-column label="坐席基本信息" min-width="190">
@@ -125,7 +137,7 @@
                 </div>
               </el-tooltip>
               <div style="margin-top: 4px;">
-                 <el-button size="small" type="primary" link @click="openLoginLogs(row)">
+                 <el-button v-hasPermi="['qingbird:employee:query']" size="small" type="primary" link @click="openLoginLogs(row)">
                    <el-icon><Tickets /></el-icon> 查看完整上线/下线日志
                  </el-button>
               </div>
@@ -166,13 +178,13 @@
         <!-- 操作 -->
         <el-table-column label="操作" width="120" align="center" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openEditDialog(row)">编辑</el-button>
+            <el-button v-hasPermi="['qingbird:employee:edit']" link type="primary" size="small" @click="openEditDialog(row)">编辑</el-button>
             <el-popconfirm
               title="确定删除该客服记录吗？"
               @confirm="handleDelete(row.id)"
             >
               <template #reference>
-                <el-button link type="danger" size="small">删除</el-button>
+                <el-button v-hasPermi="['qingbird:employee:remove']" link type="danger" size="small">删除</el-button>
               </template>
             </el-popconfirm>
           </template>
@@ -201,7 +213,7 @@
     >
       <div v-if="!isEdit" class="qb-alert-info">
         <el-icon><InfoFilled /></el-icon>
-        <span>录入后，系统将自动分配登录账号，初始密码为：<strong>123456</strong></span>
+        <span>请设置初始登录密码；提交后页面不会回显密码。</span>
       </div>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
         <el-row :gutter="16">
@@ -220,6 +232,11 @@
           <el-col :span="12">
             <el-form-item label="登录账号" prop="loginAccount">
               <el-input v-model="form.loginAccount" placeholder="系统唯一,如: zhangsan_kf" :disabled="isEdit" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12" v-if="!isEdit">
+            <el-form-item label="初始密码" prop="initialPassword">
+              <el-input v-model="form.initialPassword" type="password" show-password placeholder="请设置初始密码" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -301,7 +318,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取 消</el-button>
-        <el-button class="qb-btn-primary" @click="handleSubmit">确 认 提 交</el-button>
+        <el-button class="qb-btn-primary" @click="handleSubmit" v-hasPermi="[isEdit ? 'qingbird:employee:edit' : 'qingbird:employee:add']">确 认 提 交</el-button>
       </template>
     </el-dialog>
 
@@ -341,25 +358,28 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { validateInitialPassword } from '@/utils/passwordPolicy'
 import { Search, Plus, Download, Avatar, Phone, Postcard, Location, Monitor, InfoFilled } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import useUserStore from '@/store/modules/user'
 import { listBranchInfo, getMyBranchInfo } from '@/api/qingbird/branchInfo'
-
-const DEFAULT_BRANCH_CODE = 'B-1773208272961'
 const router = useRouter()
 const userStore = useUserStore()
 const isAdmin = computed(() => (userStore.roles || []).includes('admin'))
 const branchOptions = ref([])
 const selectedBranchCode = ref('')
+const branchScopeMessage = ref('当前账号未分配或未完善分公司，暂不能查看或维护客服坐席')
 const branchCode = computed(() => {
   if (isAdmin.value) return selectedBranchCode.value || ''
-  return selectedBranchCode.value || DEFAULT_BRANCH_CODE
+  return selectedBranchCode.value
 })
+const branchScopeReady = computed(() => isAdmin.value || !!selectedBranchCode.value)
+const canUseSeatBusiness = computed(() => branchScopeReady.value)
 const branchScopeLabel = computed(() => {
   if (isAdmin.value) return selectedBranchCode.value || '全部分公司'
-  return branchCode.value
+  return selectedBranchCode.value || '未分配/未完善分公司'
 })
+const tableEmptyText = computed(() => canUseSeatBusiness.value ? '暂无数据，点击「录入客服坐席」添加' : branchScopeMessage.value)
 const loading = ref(false)
 const tableData = ref([])
 const total = ref(0)
@@ -374,18 +394,36 @@ const isEdit = ref(false)
 const formRef = ref(null)
 
 const form = reactive({
-  id: null, userId: null, loginAccount: '', idCard: '', address: '',
+  id: null, userId: null, loginAccount: '', initialPassword: '', idCard: '', address: '',
   name: '', position: '', department: '客服一部',
   source: '', birthday: null, mobile: '',
   internDate: null, hireDate: null,
   contractStatus: 0, salaryBase: 0, depositAmount: 0,
   status: '0', resignDate: null, remark: '',
-  branchCode: DEFAULT_BRANCH_CODE
+  branchCode: ''
 })
 
 const rules = {
   loginAccount: [
     { required: true, message: '必须分配系统登录账号', trigger: 'blur' }
+  ],
+  initialPassword: [
+    { required: true, message: '请设置初始密码', trigger: 'blur' },
+    {
+      validator: (rule, value, callback) => {
+        if (isEdit.value) {
+          callback()
+          return
+        }
+        const result = validateInitialPassword(value, form.loginAccount)
+        if (!result.valid) {
+          callback(new Error(result.message))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur'
+    }
   ],
   name: [
     { required: true, message: '请输入真实姓名/备注名', trigger: 'blur' }
@@ -398,6 +436,7 @@ const formatDate = (d) => {
 }
 
 const fetchData = async () => {
+  if (!ensureBranchScope('查看客服坐席')) return
   loading.value = true
   try {
     const res = await request({
@@ -428,18 +467,35 @@ const loadBranchOptions = async () => {
     return
   }
 
-  const res = await getMyBranchInfo()
-  if (res?.code === 200 && res.data) {
-    const code = res.data.workplaceName || String(res.data.branchId || DEFAULT_BRANCH_CODE)
-    selectedBranchCode.value = code
-    branchOptions.value = [{
-      branchId: res.data.branchId,
-      branchCode: code,
-      branchName: `${code} / ${res.data.companyName || '当前分公司'}`
-    }]
-  } else {
-    selectedBranchCode.value = DEFAULT_BRANCH_CODE
+  try {
+    const res = await getMyBranchInfo()
+    const data = res?.data
+    const code = data?.workplaceName || (data?.branchId ? String(data.branchId) : '')
+    if (res?.code === 200 && code) {
+      selectedBranchCode.value = code
+      branchScopeMessage.value = ''
+      branchOptions.value = [{
+        branchId: data.branchId,
+        branchCode: code,
+        branchName: `${code} / ${data.companyName || '当前分公司'}`
+      }]
+      return
+    }
+  } catch (error) {
+    // 分公司接口失败时保持阻断，不发业务请求。
   }
+  selectedBranchCode.value = ''
+  branchOptions.value = []
+  branchScopeMessage.value = '当前账号未分配或未完善分公司，请联系管理员完善分公司档案'
+  ElMessage.warning(branchScopeMessage.value)
+}
+
+function ensureBranchScope(action) {
+  if (canUseSeatBusiness.value) return true
+  tableData.value = []
+  total.value = 0
+  ElMessage.warning(`请先分配/完善分公司后再${action}`)
+  return false
 }
 
 const handleBranchChange = () => {
@@ -455,12 +511,12 @@ const getDefaultFormBranchCode = () => {
   if (isAdmin.value) {
     return selectedBranchCode.value || branchOptions.value[0]?.branchCode || ''
   }
-  return branchCode.value || DEFAULT_BRANCH_CODE
+  return selectedBranchCode.value
 }
 
 const resetForm = () => {
   Object.assign(form, {
-    id: null, userId: null, loginAccount: '', idCard: '', address: '',
+    id: null, userId: null, loginAccount: '', initialPassword: '', idCard: '', address: '',
     name: '', position: '', department: '客服一部',
     source: '', birthday: null, mobile: '',
     internDate: null, hireDate: null,
@@ -470,6 +526,7 @@ const resetForm = () => {
 }
 
 const openAddDialog = () => {
+  if (!ensureBranchScope('录入客服坐席')) return
   isEdit.value = false
   resetForm()
   if (isAdmin.value && !form.branchCode && branchOptions.value.length > 0) {
@@ -480,11 +537,12 @@ const openAddDialog = () => {
 
 const openEditDialog = (row) => {
   isEdit.value = true
-  Object.assign(form, { ...row })
+  Object.assign(form, { ...row, initialPassword: '' })
   dialogVisible.value = true
 }
 
 const handleSubmit = async () => {
+  if (!ensureBranchScope(isEdit.value ? '编辑客服坐席' : '录入客服坐席')) return
   await formRef.value.validate()
   if (isAdmin.value && !form.branchCode) {
     ElMessage.warning('请先选择员工所属分公司')
@@ -492,7 +550,11 @@ const handleSubmit = async () => {
   }
   const url = '/qingbird/employee'
   const method = isEdit.value ? 'put' : 'post'
-  const res = await request({ url, method, data: { ...form } })
+  const data = { ...form }
+  if (isEdit.value) {
+    delete data.initialPassword
+  }
+  const res = await request({ url, method, data })
   if (res.code === 200) {
     ElMessage.success(isEdit.value ? '更新成功' : '录入并开通账号成功')
     dialogVisible.value = false
@@ -503,6 +565,7 @@ const handleSubmit = async () => {
 }
 
 const handleDelete = async (id) => {
+  if (!ensureBranchScope('删除客服坐席')) return
   const res = await request({ url: `/qingbird/employee/${id}`, method: 'delete' })
   if (res.code === 200) {
     ElMessage.success('删除成功')
@@ -511,6 +574,7 @@ const handleDelete = async (id) => {
 }
 
 const handleExport = async () => {
+  if (!ensureBranchScope('导出客服坐席')) return
   const res = await request({
     url: '/qingbird/employee/export', method: 'post',
     responseType: 'blob', params: { branchCode: branchCode.value }
@@ -558,12 +622,18 @@ const fetchLogs = async () => {
 
 onMounted(async () => {
   await loadBranchOptions()
-  fetchData()
+  if (canUseSeatBusiness.value) {
+    fetchData()
+  }
 })
 </script>
 
 <style lang="scss" scoped>
 /* 页面头部 */
+.scope-alert {
+  margin-bottom: 12px;
+}
+
 .emp-header {
   display: flex;
   align-items: center;

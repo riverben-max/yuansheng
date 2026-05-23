@@ -26,6 +26,8 @@ test("normalizePlatform returns known platform or defaults to qn", () => {
   assert.equal(normalizePlatform("jd"), "jd");
   assert.equal(normalizePlatform("pdd"), "pdd");
   assert.equal(normalizePlatform("douyin"), "douyin");
+  assert.equal(normalizePlatform(" JD "), "jd");
+  assert.equal(normalizePlatform("PDD"), "pdd");
   assert.equal(normalizePlatform(undefined), "qn");
   assert.equal(normalizePlatform(null), "qn");
   assert.equal(normalizePlatform("bad"), "qn");

@@ -12,6 +12,8 @@ public interface IBizEmployeeService {
 
     BizEmployee selectEmployeeById(Long id);
 
+    BizEmployee selectEmployeeByLoginAccount(String loginAccount);
+
     int insertEmployee(BizEmployee employee);
 
     int updateEmployee(BizEmployee employee);

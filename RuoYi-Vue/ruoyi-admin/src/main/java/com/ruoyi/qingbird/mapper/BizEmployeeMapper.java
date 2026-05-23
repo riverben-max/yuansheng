@@ -19,6 +19,16 @@ public interface BizEmployeeMapper {
     BizEmployee selectEmployeeById(Long id);
 
     /**
+     * 按登录账号精确查询员工
+     */
+    BizEmployee selectEmployeeByLoginAccount(String loginAccount);
+
+    /**
+     * 通过 userId 查询对应的 dept_id（用作 branchId）
+     */
+    Long selectBranchIdByUserId(Long userId);
+
+    /**
      * 新增员工
      */
     int insertEmployee(BizEmployee employee);

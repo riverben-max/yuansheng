@@ -20,6 +20,11 @@ const service = axios.create({
   timeout: 10000
 })
 
+function shouldHideError(config, code) {
+  if (config?.hideErrorMsg) return true
+  return Array.isArray(config?.hideErrorCodes) && config.hideErrorCodes.includes(Number(code))
+}
+
 // request拦截器
 service.interceptors.request.use(config => {
   // 是否需要设置 token
@@ -96,13 +101,13 @@ service.interceptors.response.use(res => {
     }
       return Promise.reject('无效的会话，或者会话已过期，请重新登录。')
     } else if (code === 500) {
-      if (!res.config?.hideErrorMsg) ElMessage({ message: msg, type: 'error' })
+      if (!shouldHideError(res.config, code)) ElMessage({ message: msg, type: 'error' })
       return Promise.reject(new Error(msg))
     } else if (code === 601) {
-      if (!res.config?.hideErrorMsg) ElMessage({ message: msg, type: 'warning' })
+      if (!shouldHideError(res.config, code)) ElMessage({ message: msg, type: 'warning' })
       return Promise.reject(new Error(msg))
     } else if (code !== 200) {
-      if (!res.config?.hideErrorMsg) ElNotification.error({ title: msg })
+      if (!shouldHideError(res.config, code)) ElNotification.error({ title: msg })
       return Promise.reject('error')
     } else {
       return  Promise.resolve(res.data)
@@ -111,7 +116,7 @@ service.interceptors.response.use(res => {
   error => {
     console.log('err' + error)
     // 如果请求配置了 hideErrorMsg，静默处理，不弹出提示
-    if (error.config?.hideErrorMsg) {
+    if (shouldHideError(error.config, error.response?.status)) {
       return Promise.reject(error)
     }
     let { message } = error

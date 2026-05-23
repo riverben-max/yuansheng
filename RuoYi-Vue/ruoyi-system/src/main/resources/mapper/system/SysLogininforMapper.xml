@@ -20,7 +20,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		insert into sys_logininfor (user_name, status, ipaddr, login_location, browser, os, msg, login_time)
 		values (#{userName}, #{status}, #{ipaddr}, #{loginLocation}, #{browser}, #{os}, #{msg}, sysdate())
 	</insert>
-	
+
 	<select id="selectLogininforList" parameterType="SysLogininfor" resultMap="SysLogininforResult">
 		select info_id, user_name, ipaddr, login_location, browser, os, status, msg, login_time from sys_logininfor
 		<where>
@@ -42,16 +42,38 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		</where>
 		order by info_id desc
 	</select>
-	
+
+	<select id="selectLogininforListByExactUserName" parameterType="SysLogininfor" resultMap="SysLogininforResult">
+		select info_id, user_name, ipaddr, login_location, browser, os, status, msg, login_time from sys_logininfor
+		<where>
+			<if test="ipaddr != null and ipaddr != ''">
+				AND ipaddr like concat('%', #{ipaddr}, '%')
+			</if>
+			<if test="status != null and status != ''">
+				AND status = #{status}
+			</if>
+			<if test="userName != null and userName != ''">
+				AND user_name = #{userName}
+			</if>
+			<if test="params.beginTime != null and params.beginTime != ''">
+				AND login_time &gt;= #{params.beginTime}
+			</if>
+			<if test="params.endTime != null and params.endTime != ''">
+				AND login_time &lt;= #{params.endTime}
+			</if>
+		</where>
+		order by info_id desc
+	</select>
+
 	<delete id="deleteLogininforByIds" parameterType="Long">
  		delete from sys_logininfor where info_id in
  		<foreach collection="array" item="infoId" open="(" separator="," close=")">
  			#{infoId}
-        </foreach> 
+        </foreach>
  	</delete>
-    
+
     <update id="cleanLogininfor">
         truncate table sys_logininfor
     </update>
-    
-</mapper> 
+
+</mapper>

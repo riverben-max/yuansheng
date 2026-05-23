@@ -11,7 +11,8 @@ const PLATFORM_MAP = Object.fromEntries(PLATFORMS.map((p) => [p.value, p]));
 const PLATFORM_VALUES = new Set(PLATFORMS.map((p) => p.value));
 
 export function normalizePlatform(raw) {
-  return raw && PLATFORM_VALUES.has(raw) ? raw : DEFAULT_PLATFORM;
+  const platform = String(raw || "").trim().toLowerCase();
+  return PLATFORM_VALUES.has(platform) ? platform : DEFAULT_PLATFORM;
 }
 
 export function platformLabel(platform) {

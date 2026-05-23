@@ -12,6 +12,7 @@ import sys
 import threading
 from typing import Any, Callable, Dict, Mapping, MutableMapping
 from urllib.parse import unquote
+import uuid
 
 from direct_api_capture import (
     DirectApiCaptureError,
@@ -22,6 +23,7 @@ from direct_api_capture import (
     summarize_cookie,
     update_direct_api_cookie,
 )
+from error_sanitizer import sanitize_sensitive_text
 from external_capture import LoginRequiredError, capture_with_external_chrome, inspect_existing_shadow_browser_state
 from douyin_workload_capture import capture_douyin_workload
 from jd_workload_capture import capture_jd_workload
@@ -62,6 +64,7 @@ DEFAULT_SERVER_URL = "http://120.27.22.50"
 CONFIG_ERROR_MARKERS = ("配置文件", "合法 JSON", "未启用", "缺少", "根节点", "config")
 LOGIN_PENDING_STATUSES = {"等待登录", "等待扫码", "等待登录检测", "正在清理临时浏览器"}
 _PROCESS_LOCK = threading.RLock()
+_LOCK_STATE = threading.local()
 
 
 def app_data_dir() -> Path:
@@ -204,37 +207,51 @@ class SidecarApp:
 
     def save_state(self, state: Mapping[str, Any]) -> None:
         try:
-            self.data_dir.mkdir(parents=True, exist_ok=True)
-            state_json = json.dumps(dict(state), ensure_ascii=False, indent=2)
-            state_size_mb = len(state_json.encode("utf-8")) / (1024 * 1024)
-            if state_size_mb > 5:
-                self.emit(event("log", time=datetime.now().strftime("%H:%M:%S"),
-                                 message=f"配置文件较大（{state_size_mb:.1f}MB），建议清理历史数据。"))
-            tmp_path = self.state_path.with_suffix(".json.tmp")
-            tmp_path.write_text(state_json, encoding="utf-8", newline="\n")
-            tmp_path.replace(self.state_path)
-            backup = self.state_path.with_suffix(".json.bak")
-            try:
-                backup.write_text(state_json, encoding="utf-8", newline="\n")
-            except Exception:
-                pass
+            with self.state_file_lock():
+                self.data_dir.mkdir(parents=True, exist_ok=True)
+                state_json = json.dumps(dict(state), ensure_ascii=False, indent=2)
+                state_size_mb = len(state_json.encode("utf-8")) / (1024 * 1024)
+                if state_size_mb > 5:
+                    self.emit(event("log", time=datetime.now().strftime("%H:%M:%S"),
+                                     message=f"配置文件较大（{state_size_mb:.1f}MB），建议清理历史数据。"))
+                tmp_path = self.state_path.with_name(
+                    f"{self.state_path.name}.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex}.tmp"
+                )
+                tmp_path.write_text(state_json, encoding="utf-8", newline="\n")
+                tmp_path.replace(self.state_path)
+                backup = self.state_path.with_suffix(".json.bak")
+                try:
+                    backup.write_text(state_json, encoding="utf-8", newline="\n")
+                except Exception:
+                    pass
         except Exception as exc:
             self.emit(event("log", time=datetime.now().strftime("%H:%M:%S"),
-                             message=f"保存配置文件失败，请检查磁盘空间和权限：{exc}"))
+                             message=f"保存配置文件失败，请检查磁盘空间和权限：{sanitize_sensitive_text(exc)}"))
 
     def response(self, data: Any = None) -> Dict[str, Any]:
         return {"ok": True, "data": data}
 
     @contextmanager
     def exclusive_operation_lock(self):
+        with self.state_file_lock():
+            yield
+
+    @contextmanager
+    def state_file_lock(self):
         self.data_dir.mkdir(parents=True, exist_ok=True)
         lock_path = self.data_dir / "sidecar.lock"
+        depth = int(getattr(_LOCK_STATE, "state_lock_depth", 0) or 0)
+        if depth > 0:
+            yield
+            return
         with _PROCESS_LOCK:
             with lock_path.open("a+b") as lock_file:
                 _lock_file(lock_file)
+                _LOCK_STATE.state_lock_depth = depth + 1
                 try:
                     yield
                 finally:
+                    _LOCK_STATE.state_lock_depth = depth
                     _unlock_file(lock_file)
 
     def get_state(self, _payload: Mapping[str, Any] | None = None) -> Dict[str, Any]:
@@ -244,68 +261,75 @@ class SidecarApp:
         return self.response(result)
 
     def save_settings(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
-        state = self.load_state()
-        for key in ("serverUrl", "scheduleTime"):
-            if key in payload:
-                state[key] = str(payload.get(key) or "").strip()
-        for key in ("scheduleEnabled", "autoStartEnabled", "shadowChromeAutoLaunch", "exitRequiresConfirm"):
-            if key in payload:
-                state[key] = bool(payload.get(key))
-        if "autoStartEnabled" in payload:
-            try:
-                ensure_autostart(bool(state.get("autoStartEnabled", False)))
-            except OSError:
-                self.log("更新开机自启注册表失败，可能需要管理员权限。")
-        self.save_state(state)
-        return self.response(self.public_state(state))
+        with self.state_file_lock():
+            state = self.load_state()
+            for key in ("serverUrl", "scheduleTime"):
+                if key in payload:
+                    state[key] = str(payload.get(key) or "").strip()
+            for key in ("scheduleEnabled", "autoStartEnabled", "shadowChromeAutoLaunch", "exitRequiresConfirm"):
+                if key in payload:
+                    state[key] = bool(payload.get(key))
+            if "autoStartEnabled" in payload:
+                try:
+                    ensure_autostart(bool(state.get("autoStartEnabled", False)))
+                except OSError:
+                    self.log("更新开机自启注册表失败，可能需要管理员权限。")
+            self.save_state(state)
+            return self.response(self.public_state(state))
 
     def account_create(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
-        state = self.load_state()
-        account = add_login_account(
-            state,
-            self.data_dir,
-            display_name=str(payload.get("displayName") or "新登录账户"),
-            login_hint=str(payload.get("loginHint") or ""),
-            platform=str(payload.get("platform") or "qn"),
-            shop_name=str(payload.get("shopName") or ""),
-            shop_id=int(payload.get("shopId") or 0),
-        )
-        if "enabled" in payload:
-            account["enabled"] = bool(payload.get("enabled"))
-        self.save_state(state)
-        return self.response(account)
+        with self.state_file_lock():
+            state = self.load_state()
+            account = add_login_account(
+                state,
+                self.data_dir,
+                display_name=str(payload.get("displayName") or "新登录账户"),
+                login_hint=str(payload.get("loginHint") or ""),
+                platform=str(payload.get("platform") or "qn"),
+                shop_name=str(payload.get("shopName") or ""),
+                shop_id=_safe_shop_id(payload.get("shopId")),
+            )
+            if "enabled" in payload:
+                account["enabled"] = bool(payload.get("enabled"))
+            self.save_state(state)
+            return self.response(account)
 
     def account_update(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
-        state = self.load_state()
-        account_id = str(payload.get("id") or "")
-        account = self.find_account(state, account_id)
-        if account is None:
-            raise ValueError("登录账户不存在。")
-        for key in ("displayName", "loginHint", "profileDir", "shopName"):
-            if key in payload:
-                account[key] = str(payload.get(key) or "").strip()
-        if "shopId" in payload:
-            account["shopId"] = int(payload.get("shopId") or 0)
-        if "platform" in payload:
-            account["platform"] = normalize_platform(payload.get("platform"))
-        if "chromePort" in payload:
-            account["chromePort"] = int(payload.get("chromePort") or 9222)
-        if "enabled" in payload:
-            account["enabled"] = bool(payload.get("enabled"))
-        self.save_state(state)
-        return self.response(account)
+        with self.state_file_lock():
+            state = self.load_state()
+            account_id = str(payload.get("id") or "")
+            account = self.find_account(state, account_id)
+            if account is None:
+                raise ValueError("登录账户不存在。")
+            for key in ("displayName", "loginHint", "profileDir", "shopName"):
+                if key in payload:
+                    account[key] = str(payload.get(key) or "").strip()
+            if "shopId" in payload:
+                account["shopId"] = _safe_shop_id(payload.get("shopId"))
+            if "platform" in payload:
+                next_platform = normalize_platform(payload.get("platform"))
+                if next_platform != normalize_platform(account.get("platform")):
+                    _clear_platform_credentials(account)
+                account["platform"] = next_platform
+            if "chromePort" in payload:
+                account["chromePort"] = int(payload.get("chromePort") or 9222)
+            if "enabled" in payload:
+                account["enabled"] = bool(payload.get("enabled"))
+            self.save_state(state)
+            return self.response(account)
 
     def account_delete(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
-        state = self.load_state()
-        account_id = str(payload.get("id") or "")
-        accounts = ensure_login_accounts(state, self.data_dir)
-        target = next((item for item in accounts if str(item.get("id") or "") == account_id), None)
-        if target is None:
-            raise ValueError("登录账户不存在。")
-        profile_dir = str(target.get("profileDir") or "")
-        next_accounts = [item for item in accounts if str(item.get("id") or "") != account_id]
-        state["loginAccounts"] = next_accounts
-        self.save_state(state)
+        with self.state_file_lock():
+            state = self.load_state()
+            account_id = str(payload.get("id") or "")
+            accounts = ensure_login_accounts(state, self.data_dir)
+            target = next((item for item in accounts if str(item.get("id") or "") == account_id), None)
+            if target is None:
+                raise ValueError("登录账户不存在。")
+            profile_dir = str(target.get("profileDir") or "")
+            next_accounts = [item for item in accounts if str(item.get("id") or "") != account_id]
+            state["loginAccounts"] = next_accounts
+            self.save_state(state)
 
         if bool(payload.get("removeProfile")) and profile_dir:
             target_path = Path(profile_dir).resolve()
@@ -326,49 +350,54 @@ class SidecarApp:
         return self.response({"id": account_id})
 
     def import_cookie(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
-        state = self.load_state()
-        account_id = str(payload.get("accountId") or payload.get("id") or "")
-        raw_text = str(payload.get("cookieText") or "").strip()
-        if not account_id:
-            raise ValueError("请选择一个登录账号。")
-        if not raw_text:
-            raise ValueError("请粘贴 Cookie 或 cURL 命令内容。")
-        account = self.find_account(state, account_id)
-        if account is None:
-            raise ValueError("登录账户不存在。")
-        cookie_header, csrf_token = _parse_cookie_import(raw_text)
-        if not cookie_header:
-            raise ValueError("未能从输入内容中解析出 Cookie，请检查格式。")
-        now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        account["cookieProtected"] = protect_text(cookie_header)
-        account["cookieUpdatedAt"] = now_text
-        account["loginStatus"] = "已登录"
-        account["lastError"] = ""
-        account["lastFailureReason"] = ""
-        if csrf_token:
-            account["douyinCsrfToken"] = csrf_token
-        # 自动识别登录身份
-        platform = normalize_platform(account.get("platform"))
-        identity, shop_name = "", ""
-        if platform == "douyin":
-            identity, shop_name = _resolve_douyin_user_info(cookie_header, csrf_token, self.log)
-        elif platform == "pdd":
-            identity, _ = _resolve_pdd_user_info(cookie_header, self.log)
-        elif platform == "jd":
-            from jd_workload_capture import resolve_jd_pin_from_cookie
-            identity = resolve_jd_pin_from_cookie(cookie_header)
-        else:
-            # qn: 从 Cookie 的 sn/_nk_/tracknick 提取客服名
-            identity = _resolve_qn_identity_from_cookie(cookie_header)
-        if identity:
-            account["lastKnownLoginAccount"] = identity
-            if not str(account.get("loginHint") or "").strip():
-                account["loginHint"] = identity
-        if shop_name and not str(account.get("shopName") or "").strip():
-            account["shopName"] = shop_name
-        self.save_state(state)
-        self.log(f"已导入 Cookie（长度 {len(cookie_header)}），csrf-token {'已保存' if csrf_token else '未提供'}，识别身份：{identity or '未识别'}。")
-        return self.response({"ok": True, "state": self.public_state(state)})
+        with self.state_file_lock():
+            state = self.load_state()
+            account_id = str(payload.get("accountId") or payload.get("id") or "")
+            raw_text = str(payload.get("cookieText") or "").strip()
+            if not account_id:
+                raise ValueError("请选择一个登录账号。")
+            if not raw_text:
+                raise ValueError("请粘贴 Cookie 或 cURL 命令内容。")
+            account = self.find_account(state, account_id)
+            if account is None:
+                raise ValueError("登录账户不存在。")
+            cookie_header, csrf_token = _parse_cookie_import(raw_text)
+            if not cookie_header:
+                raise ValueError("未能从输入内容中解析出 Cookie，请检查格式。")
+            now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            account["cookieProtected"] = protect_text(cookie_header)
+            account["cookieUpdatedAt"] = now_text
+            account["loginStatus"] = "已登录"
+            account["lastError"] = ""
+            account["lastFailureReason"] = ""
+            if csrf_token:
+                account["douyinCsrfTokenProtected"] = protect_text(csrf_token)
+                account.pop("douyinCsrfToken", None)
+            else:
+                account.pop("douyinCsrfToken", None)
+                account.pop("douyinCsrfTokenProtected", None)
+            # 自动识别登录身份
+            platform = normalize_platform(account.get("platform"))
+            identity, shop_name = "", ""
+            if platform == "douyin":
+                identity, shop_name = _resolve_douyin_user_info(cookie_header, csrf_token, self.log)
+            elif platform == "pdd":
+                identity, _ = _resolve_pdd_user_info(cookie_header, self.log)
+            elif platform == "jd":
+                from jd_workload_capture import resolve_jd_pin_from_cookie
+                identity = resolve_jd_pin_from_cookie(cookie_header)
+            else:
+                # qn: 从 Cookie 的 sn/_nk_/tracknick 提取客服名
+                identity = _resolve_qn_identity_from_cookie(cookie_header)
+            if identity:
+                account["lastKnownLoginAccount"] = identity
+                if not str(account.get("loginHint") or "").strip():
+                    account["loginHint"] = identity
+            if shop_name and not str(account.get("shopName") or "").strip():
+                account["shopName"] = shop_name
+            self.save_state(state)
+            self.log(f"已导入 Cookie（长度 {len(cookie_header)}），csrf-token {'已保存' if csrf_token else '未提供'}，识别身份：{identity or '未识别'}。")
+            return self.response({"ok": True, "state": self.public_state(state)})
 
     def start_login(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         with self.exclusive_operation_lock():
@@ -568,25 +597,45 @@ class SidecarApp:
         return configs
 
     def check_login(self, _payload: Mapping[str, Any] | None = None) -> Dict[str, Any]:
-        state = self.load_state()
-        try:
-            browser_state = inspect_existing_shadow_browser_state(state, self.log)
-        except ShadowBrowserError as exc:
-            return self.response({"loggedIn": False, "message": str(exc), "state": self.public_state(state)})
-        except Exception as exc:
-            return self.response({"loggedIn": False, "message": str(exc), "state": self.public_state(state)})
-        account = str(browser_state.get("loginAccount") or browser_state.get("nick") or "").strip()
-        if account:
-            state["lastKnownLoginAccount"] = account
-            self.save_state(state)
-        return self.response({"loggedIn": bool(account), "loginAccount": account, "browser": browser_state, "state": self.public_state(state)})
+        with self.state_file_lock():
+            state = self.load_state()
+            try:
+                browser_state = inspect_existing_shadow_browser_state(state, self.log)
+            except ShadowBrowserError as exc:
+                return self.response({"loggedIn": False, "message": str(exc), "state": self.public_state(state)})
+            except Exception as exc:
+                return self.response({"loggedIn": False, "message": str(exc), "state": self.public_state(state)})
+            account = str(browser_state.get("loginAccount") or browser_state.get("nick") or "").strip()
+            if account:
+                state["lastKnownLoginAccount"] = account
+                self.save_state(state)
+            return self.response({"loggedIn": bool(account), "loginAccount": account, "browser": browser_state, "state": self.public_state(state)})
 
     def capture_all(self, payload: Mapping[str, Any] | None = None) -> Dict[str, Any]:
-        state = self.load_state()
-        reason = str((payload or {}).get("reason") or "手动采集")
+        request_payload = payload or {}
+        reason = str(request_payload.get("reason") or "手动采集")
+        platform_filter = str(request_payload.get("platform") or "").strip()
+        normalized_platform = normalize_platform(platform_filter) if platform_filter else ""
         self.emit(event("status", status="采集中", danger=False))
         try:
-            accounts = ensure_login_accounts(state, self.data_dir)
+            with self.state_file_lock():
+                state = self.load_state()
+                accounts = ensure_login_accounts(state, self.data_dir)
+                if normalized_platform:
+                    accounts = [account for account in accounts if normalize_platform(account.get("platform")) == normalized_platform]
+                    if not accounts:
+                        state["lastRunAt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        self.save_state(state)
+                        self.emit(event("status", status="待命", danger=False))
+                        return self.response(
+                            {
+                                "batch": True,
+                                "results": [],
+                                "skipped": True,
+                                "message": f"没有匹配平台 {normalized_platform} 的登录账号，已跳过采集。",
+                                "state": self.public_state(state),
+                            }
+                        )
             if accounts:
                 results = capture_enabled_accounts(
                     state,
@@ -599,28 +648,31 @@ class SidecarApp:
                 )
                 state["lastRunAt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 self._trim_upload_history(state)
-                self.save_state(state)
+                with self.state_file_lock():
+                    self.save_state(state)
                 self.emit(event("status", status="待命", danger=False))
                 return self.response({"batch": True, "results": results, "state": self.public_state(state)})
             payload_data = self.capture_payload(state)
             result = self.apply_capture_result(state, payload_data, reason)
-            self.save_state(state)
+            with self.state_file_lock():
+                self.save_state(state)
             self.emit(event("status", status="待命", danger=False))
             return self.response(result)
         except (LoginRequiredError, DirectApiLoginRequiredError) as exc:
             self.emit(event("status", status="请先登录", danger=True))
-            raise RuntimeError(str(exc)) from exc
+            raise RuntimeError(sanitize_sensitive_text(exc)) from exc
         except Exception as exc:
             self.emit(event("status", status="采集失败", danger=True))
-            raise RuntimeError(str(exc)) from exc
+            raise RuntimeError(sanitize_sensitive_text(exc)) from exc
 
     def capture_account(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
-        state = self.load_state()
-        account_id = str(payload.get("accountId") or payload.get("id") or "")
-        accounts = ensure_login_accounts(state, self.data_dir)
-        selected = [item for item in accounts if str(item.get("id") or "") == account_id]
-        if not selected:
-            raise ValueError("登录账户不存在。")
+        with self.state_file_lock():
+            state = self.load_state()
+            account_id = str(payload.get("accountId") or payload.get("id") or "")
+            accounts = ensure_login_accounts(state, self.data_dir)
+            selected = [item for item in accounts if str(item.get("id") or "") == account_id]
+            if not selected:
+                raise ValueError("登录账户不存在。")
         self.emit(event("status", status="采集中", danger=False))
         results = capture_enabled_accounts(
             state,
@@ -631,18 +683,20 @@ class SidecarApp:
             log=self.log,
             capture_adapters=default_capture_adapters(self._qn_capture_with_refresh, self.jd_capture_func, self.pdd_capture_func, self.douyin_capture_func),
         )
-        self.save_state(state)
+        with self.state_file_lock():
+            self.save_state(state)
         self.emit(event("status", status="待命", danger=False))
         return self.response({"batch": True, "results": results, "state": self.public_state(state)})
 
     def capture_account_direct(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         """直接用已保存的 Cookie 采集（跳过浏览器刷新，适合每天手动导入 cURL 后使用）。"""
-        state = self.load_state()
-        account_id = str(payload.get("accountId") or payload.get("id") or "")
-        accounts = ensure_login_accounts(state, self.data_dir)
-        selected = [item for item in accounts if str(item.get("id") or "") == account_id]
-        if not selected:
-            raise ValueError("登录账户不存在。")
+        with self.state_file_lock():
+            state = self.load_state()
+            account_id = str(payload.get("accountId") or payload.get("id") or "")
+            accounts = ensure_login_accounts(state, self.data_dir)
+            selected = [item for item in accounts if str(item.get("id") or "") == account_id]
+            if not selected:
+                raise ValueError("登录账户不存在。")
         self.emit(event("status", status="采集中", danger=False))
         results = capture_enabled_accounts(
             state,
@@ -653,7 +707,8 @@ class SidecarApp:
             log=self.log,
             capture_adapters=default_capture_adapters(self.direct_capture_func, self.jd_capture_func, self.pdd_capture_func, self.douyin_capture_func),
         )
-        self.save_state(state)
+        with self.state_file_lock():
+            self.save_state(state)
         self.emit(event("status", status="待命", danger=False))
         return self.response({"batch": True, "results": results, "state": self.public_state(state)})
 
@@ -756,12 +811,14 @@ class SidecarApp:
     def public_state(self, state: MutableMapping[str, Any]) -> Dict[str, Any]:
         accounts = ensure_login_accounts(state, self.data_dir)
         public = dict(state)
+        public.pop("douyinCsrfToken", None)
+        public.pop("douyinCsrfTokenProtected", None)
         public["loginAccounts"] = [_public_account(account) for account in accounts]
         public["autoStartEnabled"] = bool(state.get("autoStartEnabled", False)) or is_autostart_enabled()
         return public
 
     def log(self, message: str) -> None:
-        self.emit(event("log", time=datetime.now().strftime("%H:%M:%S"), message=message))
+        self.emit(event("log", time=datetime.now().strftime("%H:%M:%S"), message=sanitize_sensitive_text(message)))
 
     @staticmethod
     def _trim_upload_history(state: MutableMapping[str, Any]) -> None:
@@ -802,7 +859,7 @@ def upload_payload_with_state(
     try:
         result = upload_employee_payload(server_url, dict(payload), timeout_seconds=timeout_seconds)
     except UploadClientError as exc:
-        return f"服务端上传失败：{exc}", None
+        return f"服务端上传失败：{sanitize_sensitive_text(exc)}", None
     upload_record = {
         "uploadedAt": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "serverUrl": server_url.rstrip("/"),
@@ -904,7 +961,38 @@ def _public_account(account: Mapping[str, Any]) -> Dict[str, Any]:
     public = dict(account)
     public["cookieStatus"] = _account_cookie_status(account)
     public.pop("cookieProtected", None)
+    public.pop("douyinCsrfToken", None)
+    public.pop("douyinCsrfTokenProtected", None)
     return public
+
+
+def _clear_platform_credentials(account: MutableMapping[str, Any]) -> None:
+    for key in (
+        "cookieProtected",
+        "cookieSummary",
+        "cookieUpdatedAt",
+        "douyinCsrfToken",
+        "douyinCsrfTokenProtected",
+        "activeChromePort",
+        "shadowChromePid",
+        "lastKnownLoginAccount",
+    ):
+        account.pop(key, None)
+    account["chromePort"] = 0
+    account["loginStatus"] = "待登录"
+    account["lastError"] = ""
+    account["lastResult"] = ""
+    account["lastFailureReason"] = ""
+
+
+def _safe_shop_id(value: Any) -> int:
+    try:
+        parsed = int(str(value or "").strip())
+    except (TypeError, ValueError):
+        return 0
+    if parsed < 0 or parsed > 9007199254740991:
+        return 0
+    return parsed
 
 
 def _account_cookie_status(account: Mapping[str, Any]) -> str:
@@ -1076,10 +1164,9 @@ def main(argv: list[str] | None = None) -> int:
         write_json_line(result)
         return 0
     except Exception as exc:
-        write_json_line({"ok": False, "message": str(exc)})
+        write_json_line({"ok": False, "message": sanitize_sensitive_text(exc)})
         return 1
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

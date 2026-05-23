@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, Mapping
 import httpx
 
 from direct_api_capture import DirectApiCaptureError, DirectApiLoginRequiredError
+from error_sanitizer import sanitize_sensitive_text
 from secure_storage import unprotect_text
 from spider_core import convert_metric_value, parse_json_text
 
@@ -118,10 +119,11 @@ def parse_douyin_workload_payload(raw_data: Any, *, request_params: Mapping[str,
     record_date = str(request_params.get("recordDate") or "").strip()
     staff_info = row.get("staffUserInfo") or {}
     sub_account = _first_text(row.get("staffName"), staff_info.get("staffNickName"))
-    login_account = _first_text(state.get("shopName"), state.get("lastKnownLoginAccount"), "抖店")
+    login_account = _first_text(state.get("loginHint"), state.get("lastKnownLoginAccount"), sub_account, "抖店")
 
     raw_metrics = dict(row)
     raw_metrics["source"] = "douyin_query_staff_data"
+    raw_metrics["shopName"] = str(state.get("shopName") or "").strip()
     raw_metrics["requestUrl"] = DOUYIN_STAFF_DATA_URL
 
     return {
@@ -146,7 +148,7 @@ def _find_douyin_target_row(rows: list, state: Mapping[str, Any]) -> Mapping[str
     if len(rows) == 1:
         return rows[0]
     targets = []
-    for key in ("loginHint", "shopName", "lastKnownLoginAccount", "subAccount"):
+    for key in ("loginHint", "lastKnownLoginAccount", "subAccount"):
         target = str(state.get(key) or "").strip()
         if target and target not in targets:
             targets.append(target)
@@ -162,8 +164,7 @@ def _find_douyin_target_row(rows: list, state: Mapping[str, Any]) -> Mapping[str
             ]
             if target in identities:
                 return row
-    # 无匹配时返回第一行
-    return rows[0]
+    raise DouyinWorkloadCaptureError("抖店接口返回多个客服，但当前账号未匹配到目标客服，请补充登录识别名。")
 
 
 def normalize_douyin_cookie_header(cookie: str) -> str:
@@ -208,7 +209,7 @@ def _response_text_summary(response: Any) -> str:
     text = str(getattr(response, "text", "") or "").strip()
     if not text:
         return ""
-    return f"响应摘要：{' '.join(text.split())[:300]}"
+    return f"响应摘要：{sanitize_sensitive_text(' '.join(text.split()))}"
 
 
 def _metric(value: Any) -> Any:

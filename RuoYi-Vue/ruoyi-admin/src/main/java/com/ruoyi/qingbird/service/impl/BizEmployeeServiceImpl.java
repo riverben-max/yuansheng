@@ -12,6 +12,7 @@ import com.ruoyi.qingbird.domain.BizEmployee;
 import com.ruoyi.qingbird.mapper.BizBranchInfoMapper;
 import com.ruoyi.qingbird.mapper.BizEmployeeMapper;
 import com.ruoyi.qingbird.service.IBizEmployeeService;
+import com.ruoyi.qingbird.service.support.InitialPasswordPolicy;
 import com.ruoyi.system.service.ISysUserService;
 import com.ruoyi.common.core.domain.entity.SysUser;
 
@@ -46,10 +47,23 @@ public class BizEmployeeServiceImpl implements IBizEmployeeService {
     }
 
     @Override
+    public BizEmployee selectEmployeeByLoginAccount(String loginAccount) {
+        if (StringUtils.isBlank(loginAccount)) {
+            return null;
+        }
+        BizEmployee employee = employeeMapper.selectEmployeeByLoginAccount(loginAccount.trim());
+        if (isBranchManager() && (employee == null || !getCurrentBranchCode().equals(employee.getBranchCode()))) {
+            return null;
+        }
+        return employee;
+    }
+
+    @Override
     @Transactional
     public int insertEmployee(BizEmployee employee) {
         applyBranchManagerScope(employee);
         ensureEmployeeBranch(employee);
+        normalizeLoginAccount(employee);
         employee.setCreateBy(SecurityUtils.getUsername());
         if (employee.getStatus() == null) {
             employee.setStatus("0"); // 默认在职
@@ -60,7 +74,16 @@ public class BizEmployeeServiceImpl implements IBizEmployeeService {
 
         // 绑定账号：创建对应的 SysUser
         if (employee.getLoginAccount() != null && !employee.getLoginAccount().isEmpty()) {
+            ensureLoginAccountUnique(employee.getLoginAccount(), null);
             if (sysUserService.checkUserNameUnique(new SysUser() {{ setUserName(employee.getLoginAccount()); }})) {
+                String initialPassword = StringUtils.trim(employee.getInitialPassword());
+                if (StringUtils.isEmpty(initialPassword)) {
+                    throw new ServiceException("客服坐席初始密码不能为空");
+                }
+                if (InitialPasswordPolicy.isWeak(initialPassword)) {
+                    throw new ServiceException("客服坐席初始密码不能使用常见弱密码");
+                }
+
                 SysUser sysUser = new SysUser();
                 sysUser.setUserName(employee.getLoginAccount());
                 sysUser.setNickName(employee.getName());
@@ -69,7 +92,7 @@ public class BizEmployeeServiceImpl implements IBizEmployeeService {
                 if (deptId != null) {
                     sysUser.setDeptId(deptId);
                 }
-                sysUser.setPassword(SecurityUtils.encryptPassword("123456")); // 默认密码
+                sysUser.setPassword(SecurityUtils.encryptPassword(initialPassword));
                 sysUser.setCreateBy(SecurityUtils.getUsername());
                 sysUser.setStatus("0"); // 正常
                 
@@ -88,6 +111,10 @@ public class BizEmployeeServiceImpl implements IBizEmployeeService {
         checkBranchManagerEmployeeScope(employee.getId());
         applyBranchManagerScope(employee);
         ensureEmployeeBranch(employee);
+        normalizeLoginAccount(employee);
+        if (StringUtils.isNotEmpty(employee.getLoginAccount())) {
+            ensureLoginAccountUnique(employee.getLoginAccount(), employee.getId());
+        }
         employee.setUpdateBy(SecurityUtils.getUsername());
         return employeeMapper.updateEmployee(employee);
     }
@@ -144,6 +171,21 @@ public class BizEmployeeServiceImpl implements IBizEmployeeService {
         }
     }
 
+    private void ensureLoginAccountUnique(String loginAccount, Long currentId) {
+        BizEmployee existing = employeeMapper.selectEmployeeByLoginAccount(loginAccount.trim());
+        if (existing != null && (currentId == null || !currentId.equals(existing.getId()))) {
+            throw new ServiceException("登录账号已存在");
+        }
+    }
+
+    private void normalizeLoginAccount(BizEmployee employee) {
+        if (employee == null) {
+            return;
+        }
+        String loginAccount = StringUtils.trim(employee.getLoginAccount());
+        employee.setLoginAccount(StringUtils.isBlank(loginAccount) ? null : loginAccount);
+    }
+
     private boolean isBranchManager() {
         return !SecurityUtils.isAdmin() && !SecurityUtils.hasRole("admin") && SecurityUtils.hasRole("manager");
     }
@@ -155,4 +197,5 @@ public class BizEmployeeServiceImpl implements IBizEmployeeService {
         }
         return String.valueOf(SecurityUtils.getDeptId());
     }
+
 }

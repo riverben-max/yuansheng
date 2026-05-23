@@ -35,22 +35,22 @@
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
-          <el-button icon="Refresh" @click="resetQuery">重置</el-button>
+          <el-button type="primary" icon="Search" @click="handleQuery" v-hasPermi="['qingbird:branchInfo:list']">搜索</el-button>
+          <el-button icon="Refresh" @click="resetQuery" v-hasPermi="['qingbird:branchInfo:list']">重置</el-button>
         </el-form-item>
       </el-form>
 
       <el-row :gutter="10" class="mb8">
         <el-col :span="1.5">
-          <el-button type="primary" plain icon="Plus" @click="handleAdd">新增</el-button>
+          <el-button type="primary" plain icon="Plus" @click="handleAdd" v-hasPermi="['qingbird:branchInfo:add']">新增</el-button>
         </el-col>
         <el-col :span="1.5">
-          <el-button type="success" plain icon="Check" :disabled="single || selectedRow?.auditStatus !== 1" @click="handleApprove()">
+          <el-button type="success" plain icon="Check" :disabled="single || selectedRow?.auditStatus !== 1" @click="handleApprove()" v-hasPermi="['qingbird:branchInfo:approve']">
             审核通过
           </el-button>
         </el-col>
         <el-col :span="1.5">
-          <el-button type="danger" plain icon="Delete" :disabled="multiple" @click="handleDelete()">
+          <el-button type="danger" plain icon="Delete" :disabled="multiple" @click="handleDelete()" v-hasPermi="['qingbird:branchInfo:remove']">
             删除
           </el-button>
         </el-col>
@@ -73,17 +73,18 @@
         <el-table-column label="创建时间" prop="createTime" width="170" align="center" />
         <el-table-column label="操作" align="center" width="230" fixed="right">
           <template #default="scope">
-            <el-button link type="primary" icon="Edit" @click="handleUpdate(scope.row)">修改</el-button>
+            <el-button link type="primary" icon="Edit" @click="handleUpdate(scope.row)" v-hasPermi="['qingbird:branchInfo:edit']">修改</el-button>
             <el-button
               v-if="scope.row.auditStatus === 1"
               link
               type="success"
               icon="Check"
               @click="handleApprove(scope.row)"
+              v-hasPermi="['qingbird:branchInfo:approve']"
             >
               审核
             </el-button>
-            <el-button link type="danger" icon="Delete" @click="handleDelete(scope.row)">删除</el-button>
+            <el-button link type="danger" icon="Delete" @click="handleDelete(scope.row)" v-hasPermi="['qingbird:branchInfo:remove']">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -126,7 +127,7 @@
             </el-col>
             <el-col v-if="!form.id" :span="12">
               <el-form-item label="初始密码" prop="managerPassword">
-                <el-input v-model="form.managerPassword" show-password placeholder="默认建议：123456" />
+                <el-input v-model="form.managerPassword" show-password placeholder="请设置主管初始密码" />
               </el-form-item>
             </el-col>
             <el-col :span="24">
@@ -155,7 +156,7 @@
         </el-form>
         <template #footer>
           <div class="dialog-footer">
-            <el-button type="primary" :loading="saveLoading" @click="submitForm">确 定</el-button>
+            <el-button type="primary" :loading="saveLoading" @click="submitForm" v-hasPermi="[form.id ? 'qingbird:branchInfo:edit' : 'qingbird:branchInfo:add']">确 定</el-button>
             <el-button @click="cancel">取 消</el-button>
           </div>
         </template>
@@ -165,13 +166,14 @@
     <template v-else>
       <el-descriptions title="我的分公司资料" :column="3" border class="manager-summary">
         <template #extra>
-          <el-button icon="Refresh" @click="getMyInfo">刷新</el-button>
+          <el-button icon="Refresh" @click="getMyInfo" v-hasPermi="['qingbird:branchInfo:query']">刷新</el-button>
           <el-button
             type="primary"
             icon="Check"
             :loading="submitLoading"
             :disabled="myForm.auditStatus === 1"
             @click="submitMyInfo"
+            v-hasPermi="['qingbird:branchInfo:submit']"
           >
             保存并提交审核
           </el-button>
@@ -289,6 +291,7 @@
 import { computed, getCurrentInstance, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import useUserStore from '@/store/modules/user'
+import { validateInitialPassword } from '@/utils/passwordPolicy'
 import {
   listBranchInfo,
   getBranchInfo,
@@ -339,7 +342,7 @@ const emptyForm = () => ({
   idCardFront: '',
   idCardBack: '',
   managerUserName: '',
-  managerPassword: '123456',
+  managerPassword: '',
   auditStatus: 0
 })
 
@@ -362,11 +365,16 @@ const validateManagerUserName = (rule, value, callback) => {
 }
 
 const validateManagerPassword = (rule, value, callback) => {
-  if (!form.value.id && !value) {
-    callback(new Error('初始密码不能为空'))
-  } else {
+  if (form.value.id) {
     callback()
+    return
   }
+  const result = validateInitialPassword(value, form.value.managerUserName)
+  if (!result.valid) {
+    callback(new Error(result.message))
+    return
+  }
+  callback()
 }
 
 const validateJson = (rule, value, callback) => {
@@ -447,7 +455,6 @@ function resetQuery() {
 
 function resetForm() {
   form.value = emptyForm()
-  form.value.managerPassword = '123456'
   proxy.resetForm('branchRef')
 }
 

@@ -19,6 +19,7 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.core.text.Convert;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.utils.html.EscapeUtil;
 import com.ruoyi.system.domain.SysNotice;
 import com.ruoyi.system.service.ISysNoticeReadService;
 import com.ruoyi.system.service.ISysNoticeService;
@@ -57,7 +58,7 @@ public class SysNoticeController extends BaseController
     @GetMapping(value = "/{noticeId}")
     public AjaxResult getInfo(@PathVariable Long noticeId)
     {
-        return success(noticeService.selectNoticeById(noticeId));
+        return success(sanitizeNotice(noticeService.selectNoticeById(noticeId)));
     }
 
     /**
@@ -93,6 +94,7 @@ public class SysNoticeController extends BaseController
     {
         Long userId = getUserId();
         List<SysNotice> list = noticeReadService.selectNoticeListWithReadStatus(userId, 5);
+        list.forEach(this::sanitizeNotice);
         long unreadCount = list.stream().filter(n -> !n.getIsRead()).count();
         AjaxResult result = AjaxResult.success(list);
         result.put("unreadCount", unreadCount);
@@ -134,5 +136,14 @@ public class SysNoticeController extends BaseController
     {
         noticeReadService.deleteByNoticeIds(noticeIds);
         return toAjax(noticeService.deleteNoticeByIds(noticeIds));
+    }
+
+    private SysNotice sanitizeNotice(SysNotice notice)
+    {
+        if (notice != null)
+        {
+            notice.setNoticeContent(EscapeUtil.clean(notice.getNoticeContent()));
+        }
+        return notice;
     }
 }

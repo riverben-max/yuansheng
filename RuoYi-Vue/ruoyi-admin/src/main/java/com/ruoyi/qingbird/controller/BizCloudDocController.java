@@ -16,6 +16,7 @@ import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.utils.html.EscapeUtil;
 import com.ruoyi.qingbird.domain.BizCloudDoc;
 import com.ruoyi.qingbird.service.IBizCloudDocService;
 import com.ruoyi.common.utils.poi.ExcelUtil;
@@ -43,6 +44,10 @@ public class BizCloudDocController extends BaseController
     {
         startPage();
         List<BizCloudDoc> list = bizCloudDocService.selectBizCloudDocList(bizCloudDoc);
+        for (BizCloudDoc doc : list)
+        {
+            sanitizeDoc(doc);
+        }
         return getDataTable(list);
     }
 
@@ -66,7 +71,7 @@ public class BizCloudDocController extends BaseController
     @GetMapping(value = "/{id}")
     public AjaxResult getInfo(@PathVariable("id") Long id)
     {
-        return AjaxResult.success(bizCloudDocService.selectBizCloudDocById(id));
+        return AjaxResult.success(sanitizeDoc(bizCloudDocService.selectBizCloudDocById(id)));
     }
 
     /**
@@ -102,5 +107,14 @@ public class BizCloudDocController extends BaseController
     public AjaxResult remove(@PathVariable Long[] ids)
     {
         return toAjax(bizCloudDocService.deleteBizCloudDocByIds(ids));
+    }
+
+    private BizCloudDoc sanitizeDoc(BizCloudDoc doc)
+    {
+        if (doc != null && doc.getContent() != null)
+        {
+            doc.setContent(EscapeUtil.clean(doc.getContent()));
+        }
+        return doc;
     }
 }

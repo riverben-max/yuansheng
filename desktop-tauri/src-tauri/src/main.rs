@@ -115,7 +115,7 @@ fn sidecar_command_blocking(app: AppHandle, command: String, payload: Option<Val
             continue;
         }
         let parsed: Value = serde_json::from_str(line).map_err(|error| {
-            format!("sidecar 输出不是合法 JSON：{error}; line={line}")
+            format!("sidecar 输出不是合法 JSON：{error}; line={}", sanitize_sensitive_text(line, 500))
         })?;
         if parsed.get("type").is_some() {
             let _ = app.emit("sidecar-event", parsed.clone());
@@ -129,7 +129,7 @@ fn sidecar_command_blocking(app: AppHandle, command: String, payload: Option<Val
         if status.success() {
             json!({ "ok": true, "data": null })
         } else {
-            let msg = stderr_text.trim().to_string();
+            let msg = sanitize_sensitive_text(stderr_text.trim(), 500);
             json!({ "ok": false, "message": if msg.is_empty() { "sidecar 异常退出，无错误输出。".to_string() } else { msg } })
         }
     });
@@ -156,6 +156,85 @@ fn read_pipe_bytes<R: Read>(mut reader: R) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+fn sanitize_sensitive_text(input: &str, limit: usize) -> String {
+    let mut text = input.to_string();
+    for marker in [
+        "cookie",
+        "set-cookie",
+        "authorization",
+        "csrf",
+        "token",
+        "secret",
+        "x-sign",
+        "sign",
+        "thor",
+        "pin",
+        "pt_pin",
+        "pass_id",
+        "jsessionid",
+        "windows_app_shop_token",
+        "_m_h5_tk",
+        "_tb_token_",
+    ] {
+        text = redact_marker_values(&text, marker);
+    }
+    if text.chars().count() > limit {
+        let take = limit.saturating_sub(3);
+        let mut truncated: String = text.chars().take(take).collect();
+        truncated.push_str("...");
+        return truncated;
+    }
+    text
+}
+
+fn redact_marker_values(input: &str, marker: &str) -> String {
+    let lower = input.to_ascii_lowercase();
+    let marker_lower = marker.to_ascii_lowercase();
+    let bytes = input.as_bytes();
+    let mut output = String::with_capacity(input.len());
+    let mut cursor = 0;
+    while let Some(relative) = lower[cursor..].find(&marker_lower) {
+        let start = cursor + relative;
+        let marker_end = start + marker.len();
+        let search_end = (marker_end + 40).min(input.len());
+        let delimiter = bytes[marker_end..search_end]
+            .iter()
+            .position(|byte| *byte == b':' || *byte == b'=');
+        let Some(delimiter_offset) = delimiter else {
+            output.push_str(&input[cursor..marker_end]);
+            cursor = marker_end;
+            continue;
+        };
+
+        let value_prefix_end = marker_end + delimiter_offset + 1;
+        let mut value_start = value_prefix_end;
+        while value_start < input.len() && matches!(bytes[value_start], b' ' | b'\t') {
+            value_start += 1;
+        }
+        let quote = if value_start < input.len() && (bytes[value_start] == b'"' || bytes[value_start] == b'\'') {
+            let quote = bytes[value_start];
+            value_start += 1;
+            Some(quote)
+        } else {
+            None
+        };
+        let mut value_end = value_start;
+        while value_end < input.len() {
+            let byte = bytes[value_end];
+            if quote.map(|q| byte == q).unwrap_or(matches!(byte, b',' | b';' | b'}' | b' ' | b'\t' | b'\r' | b'\n')) {
+                break;
+            }
+            value_end += 1;
+        }
+
+        output.push_str(&input[cursor..value_start]);
+        output.push_str("<redacted>");
+        cursor = value_end;
+    }
+    output.push_str(&input[cursor..]);
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,6 +242,17 @@ mod tests {
     #[test]
     fn poll_login_timeout_allows_slow_browser_attach() {
         assert_eq!(sidecar_timeout_secs("poll_login"), 20);
+    }
+
+    #[test]
+    fn sanitize_sensitive_text_redacts_and_truncates_output() {
+        let raw = r#"line={"cookie":"thor=secret-thor; pin=secret-pin","x-sign":"secret-sign","message":"bad"}"#;
+        let sanitized = sanitize_sensitive_text(raw, 80);
+
+        assert!(!sanitized.contains("secret-thor"));
+        assert!(!sanitized.contains("secret-pin"));
+        assert!(!sanitized.contains("secret-sign"));
+        assert!(sanitized.len() <= 80);
     }
 }
 

@@ -25,13 +25,19 @@ public class SpiderUploadController extends BaseController {
     @Anonymous // 允许无 token 匿名访问
     @PostMapping("/upload")
     public AjaxResult uploadSpiderData(@RequestBody SpiderDataUploadDTO uploadDTO) {
-        if (uploadDTO.getShopId() == null || uploadDTO.getShopId() <= 0 || uploadDTO.getRecordDate() == null) {
-            return error("ShopId and RecordDate are required.");
-        }
-        if (uploadDTO.getPlatformType() == null) {
-            return error("PlatformType is required.");
-        }
         try {
+            if (uploadDTO == null) {
+                return error("request body is required.");
+            }
+            if (uploadDTO.getLoginAccount() == null || uploadDTO.getLoginAccount().isBlank()) {
+                return error("loginAccount is required.");
+            }
+            if (uploadDTO.getRecordDate() == null) {
+                return error("recordDate is required.");
+            }
+            if (uploadDTO.getPlatformType() == null) {
+                return error("platformType is required.");
+            }
             String clientIp = IpUtils.getIpAddr();
             int rows = spiderDataService.handleSpiderUpload(uploadDTO, clientIp);
             if (rows > 0) {
@@ -44,7 +50,7 @@ public class SpiderUploadController extends BaseController {
             return error(e.getMessage());
         } catch (Exception e) {
             logger.error("Error saving spider data", e);
-            return error("Server error while processing spider data: " + e.getMessage());
+            return error("Server error while processing spider data.");
         }
     }
 }

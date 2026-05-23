@@ -119,7 +119,7 @@ class PddWorkloadCaptureTests(unittest.TestCase):
             client.calls[0][1]["headers"]["Referer"],
             "https://mms.pinduoduo.com/mms-chat/overview/merchant",
         )
-        self.assertEqual(payload["loginAccount"], "拼多多远盛店")
+        self.assertEqual(payload["loginAccount"], "屿你服饰星星")
         self.assertEqual(payload["recordDate"], "2026-05-17")
         self.assertEqual(payload["subAccount"], "屿你服饰星星")
         self.assertEqual(payload["consultationCount"], 7)
@@ -132,6 +132,7 @@ class PddWorkloadCaptureTests(unittest.TestCase):
         self.assertEqual(payload["rawMetrics"]["reply_30s_rate"], 0.75)
         self.assertEqual(payload["rawMetrics"]["salesAmountYuan"], 123.45)
         self.assertEqual(payload["rawMetrics"]["accountIdentity"], "屿你服饰星星")
+        self.assertEqual(payload["rawMetrics"]["shopName"], "拼多多远盛店")
         self.assertEqual(payload["rawMetrics"]["source"], "pdd_cs_report_detail")
 
     def test_capture_requires_saved_cookie(self) -> None:
@@ -198,7 +199,7 @@ class PddWorkloadCaptureTests(unittest.TestCase):
         self.assertEqual(payload["subAccount"], "远盛客服小满")
         self.assertEqual(payload["rawMetrics"]["accountIdentity"], "远盛客服小满")
 
-    def test_multi_row_prefers_last_known_login_account_when_hints_conflict(self) -> None:
+    def test_multi_row_prefers_explicit_login_hint_when_hints_conflict(self) -> None:
         payload = parse_pdd_workload_payload(
             {"success": True, "result": {"data": [SAMPLE_ROW, SECOND_ROW]}},
             {"recordDate": "2026-05-17"},
@@ -209,7 +210,8 @@ class PddWorkloadCaptureTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(payload["subAccount"], "远盛客服小满")
+        self.assertEqual(payload["subAccount"], "屿你服饰星星")
+        self.assertEqual(payload["loginAccount"], "172906144")
 
     def test_multi_row_requires_identity_match(self) -> None:
         with self.assertRaisesRegex(PddWorkloadCaptureError, "多个客服.*登录识别名"):
@@ -250,6 +252,23 @@ class PddWorkloadCaptureTests(unittest.TestCase):
                     lambda _message: None,
                     client=client,
                 )
+
+    def test_http_error_redacts_sensitive_response_body(self) -> None:
+        client = FakeClient(FakeResponse(500, {"success": False}))
+        client.response.text = '{"cookie":"PASS_ID=secret-pass; windows_app_shop_token_23=secret-shop","token":"secret-token"}'
+
+        with patch("pdd_workload_capture.unprotect_text", return_value=VALID_COOKIE):
+            with self.assertRaises(PddWorkloadCaptureError) as ctx:
+                capture_pdd_workload(
+                    {"cookieProtected": "dpapi:v1:cookie"},
+                    lambda _message: None,
+                    client=client,
+                )
+
+        message = str(ctx.exception)
+        self.assertNotIn("secret-pass", message)
+        self.assertNotIn("secret-shop", message)
+        self.assertNotIn("secret-token", message)
 
     def test_capture_wraps_http_transport_errors(self) -> None:
         class BrokenClient:
