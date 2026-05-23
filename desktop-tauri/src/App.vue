@@ -394,8 +394,10 @@ onMounted(async () => {
     const now = new Date();
     const [h, m] = settings.scheduleTime.split(":").map(Number);
     if (now.getHours() !== h || now.getMinutes() !== m) return;
-    const todayStr = now.toISOString().slice(0, 10);
-    if (state.lastRunDate === todayStr) return;
+    // lastRunAt 是 "YYYY-MM-DD HH:MM:SS" 格式，取前10位作为日期
+    const todayStr = now.toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\//g, "-");
+    const lastRunDate = (state.lastRunAt || "").slice(0, 10);
+    if (lastRunDate === todayStr) return;
     callSidecar("capture_all", { reason: "定时采集" });
   }, 60_000);
 });

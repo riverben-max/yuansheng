@@ -157,7 +157,7 @@ class SidecarApp:
         return self.direct_capture_func(state, log)
 
     def _qn_token_expired(self, state: Mapping[str, Any]) -> bool:
-        """检查千牛 _m_h5_tk 是否已过期。"""
+        """检查千牛 _m_h5_tk 是否已过期（有效期约 2 小时，从生成时间戳算起）。"""
         import time as _time
         try:
             from secure_storage import unprotect_text
@@ -167,8 +167,9 @@ class SidecarApp:
                 if name.strip() == "_m_h5_tk" and sep:
                     parts = val.strip().split("_")
                     if len(parts) >= 2:
-                        tk_ts = int(parts[-1]) / 1000
-                        return _time.time() > tk_ts
+                        # 末尾是生成时间戳（毫秒），有效期约 7200 秒（2小时）
+                        gen_ts = int(parts[-1]) / 1000
+                        return _time.time() > gen_ts + 7200
         except Exception:
             pass
         return True
