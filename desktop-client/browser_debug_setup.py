@@ -18,6 +18,14 @@ PLATFORM_COOKIE_DOMAINS: Dict[str, List[str]] = {
     "pdd": [".pinduoduo.com", ".yangkeduo.com"],
 }
 
+# 各平台登录页 URL（用于「在已运行的浏览器里新开标签页跳转登录」这种轻量场景）
+PLATFORM_LOGIN_URLS: Dict[str, str] = {
+    "douyin": "https://fxg.jinritemai.com",
+    "qn": "https://loginmyseller.taobao.com/",
+    "jd": "https://passport.jd.com/new/login.aspx?ReturnUrl=http%3A%2F%2Fkf.jd.com%2F",
+    "pdd": "https://mms.pinduoduo.com/login/?redirectUrl=https%3A%2F%2Fmms.pinduoduo.com%2Fmms-chat%2Foverview%2Fmerchant",
+}
+
 
 class BrowserDebugError(RuntimeError):
     pass
@@ -354,6 +362,45 @@ def grab_cookies_via_cdp(port: int, target_domains: List[str]) -> str:
         return "; ".join(parts)
     finally:
         # 释放 DrissionPage 内部资源（不关闭浏览器，仅断开当前 session）
+        if page is not None:
+            try:
+                page.disconnect()
+            except Exception:
+                pass
+
+
+def open_url_in_existing_browser(port: int, url: str) -> bool:
+    """在已运行的调试模式浏览器里新开一个标签页打开 ``url``。
+
+    场景：客户的 360 已经在调试模式了（之前流程留下的），但还没登录目标平台。
+    我们不重启浏览器（不打扰客户的其他标签），只新开一个 tab 跳到登录页。
+
+    返回 True 表示新标签页已创建；失败抛 BrowserDebugError。
+    """
+    if not _port_is_open(port):
+        raise BrowserNotReadyError(f"无法连接到浏览器调试端口 {port}，浏览器可能未运行。")
+    try:
+        from DrissionPage import ChromiumOptions, ChromiumPage
+    except ModuleNotFoundError as exc:
+        raise BrowserDebugError("缺少 DrissionPage，无法连接浏览器。") from exc
+
+    co = ChromiumOptions()
+    co.set_local_port(port)
+    co.existing_only(True)
+    page = None
+    try:
+        try:
+            page = ChromiumPage(co)
+            _ = page.title  # 触发实际连接，验证可用性
+        except Exception as exc:
+            raise BrowserNotReadyError(f"连接浏览器失败：{exc}") from exc
+
+        try:
+            page.new_tab(url=url)
+            return True
+        except Exception as exc:
+            raise BrowserDebugError(f"新开标签页失败：{exc}") from exc
+    finally:
         if page is not None:
             try:
                 page.disconnect()

@@ -170,7 +170,10 @@ def capture_enabled_accounts(
         account["lastError"] = ""
         account["lastFailureReason"] = failure_reason
         account["lastCaptureSummary"] = capture_summary
-        account["lastKnownLoginAccount"] = _capture_identity_for_account(account, payload)
+        new_identity = _capture_identity_for_account(account, payload)
+        account["lastKnownLoginAccount"] = new_identity
+        if new_identity:
+            account["loginHint"] = new_identity
         if upload_record is not None:
             account["lastUploadAt"] = now_text
 
@@ -416,16 +419,16 @@ def _upload_failure_reason(upload_message: str) -> str:
 def _capture_identity_for_account(account: Mapping[str, Any], payload: Mapping[str, Any]) -> str:
     raw_metrics = payload.get("rawMetrics")
     account_identity = raw_metrics.get("accountIdentity") if isinstance(raw_metrics, Mapping) else ""
-    for value in (
-        account_identity,
-        account.get("loginHint"),
-        payload.get("loginAccount"),
-        payload.get("subAccount"),
-        account.get("lastKnownLoginAccount"),
-    ):
-        text = str(value or "").strip()
-        if text:
-            return text
+    if account_identity:
+        return str(account_identity).strip()
+    login_account = str(payload.get("loginAccount") or "").strip()
+    sub_account = str(payload.get("subAccount") or "").strip()
+    if login_account and sub_account and sub_account not in login_account:
+        return f"{login_account}:{sub_account}"
+    if login_account:
+        return login_account
+    if sub_account:
+        return sub_account
     return ""
 
 

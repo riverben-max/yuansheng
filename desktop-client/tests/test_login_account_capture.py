@@ -817,7 +817,7 @@ class BatchCaptureTests(unittest.TestCase):
         )
 
         self.assertTrue(results[0]["ok"])
-        self.assertEqual(accounts[0]["lastKnownLoginAccount"], "manual-cs")
+        self.assertEqual(accounts[0]["lastKnownLoginAccount"], "店铺名")
 
     def test_non_numeric_shop_id_is_treated_as_zero(self) -> None:
         state = {"serverUrl": "http://example.com", "uploadHistory": {}}

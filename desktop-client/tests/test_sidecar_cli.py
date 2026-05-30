@@ -1708,7 +1708,7 @@ class SidecarCaptureTests(unittest.TestCase):
         self.assertTrue(result["data"]["batch"])
         self.assertTrue(result["data"]["results"][0]["ok"])
         self.assertIn("服务端上传失败", result["data"]["results"][0]["uploadMessage"])
-        self.assertEqual(reloaded["loginAccounts"][0]["lastKnownLoginAccount"], "远盛电商")
+        self.assertEqual(reloaded["loginAccounts"][0]["lastKnownLoginAccount"], "远盛电商:林志玲")
         self.assertEqual(captured_states[0]["cookieProtected"], "dpapi:v1:encrypted-cookie")
         self.assertTrue(captured_states[0]["accountCookieRequired"])
         self.assertEqual(events[0]["status"], "采集中")

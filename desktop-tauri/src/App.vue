@@ -111,12 +111,7 @@
           @update:activePlatformFilter="activePlatformFilter = $event"
           @update:selectedAccount="selectedAccount = $event"
           @create="openAccountDialog()"
-          @edit="openAccountDialog"
-          @delete="onDeleteAccount"
-          @login="onStartLogin"
           @capture="onCaptureAccount"
-          @capture-direct="onCaptureAccountDirect"
-          @import-cookie="onImportCookie"
           @grab-browser="onGrabBrowser"
         />
       </el-tab-pane>
@@ -182,10 +177,10 @@ async function callSidecar(command, payload = {}, options = {}) {
 const { state, settings, accounts, saving, applyState, refreshState, saveSettings } = useSettings(callSidecar);
 const { loginBusy, runtimeStatus, statusDanger,
         loginSummaryStatus,
-        startLogin, stopLoginPolling,
+        stopLoginPolling,
         syncRuntimeStatusFromAccounts } = useLoginPolling(callSidecar, refreshState, accounts);
 const { captureBusy, captureAll, captureAccount, captureAccountDirect } = useCapture(callSidecar, refreshState, applyState);
-const { accountDialog, selectedAccount, openAccountDialog, saveAccount, deleteAccount } =
+const { accountDialog, selectedAccount, openAccountDialog, saveAccount } =
   useAccounts(callSidecar, refreshState, activePlatformFilter);
 
 // ── Computed ──
@@ -356,49 +351,6 @@ async function onCaptureAccountDirect(account) {
   if (result?.blocked) ElMessage.warning(result.hint);
 }
 
-async function onStartLogin(account) {
-  await startLogin(account, activeTab);
-}
-
-async function onDeleteAccount(account) {
-  await deleteAccount(account);
-  selectedAccount.value = null;
-}
-
-async function onImportCookie(account) {
-  if (!account) return;
-  const platform = account.platform || "qn";
-  const requestName = platform === "pdd" ? "csReportDetail"
-    : platform === "douyin" ? "queryStaffData"
-    : platform === "jd" ? "queryList"
-    : "mtop（任意一个 1.0/?jsv= 开头的请求）";
-  try {
-    const { value } = await ElMessageBox.prompt(
-      `操作步骤：\n1. 在浏览器中打开对应客服数据页面\n2. 按 F12 打开开发者工具 → Network 标签\n3. 刷新页面，找到 ${requestName} 请求\n4. 右键该请求 → Copy → Copy as cURL\n5. 粘贴到下方输入框`,
-      "导入 Cookie",
-      { inputType: "textarea", confirmButtonText: "导入", cancelButtonText: "取消" },
-    );
-    if (!value?.trim()) return;
-    const result = await callSidecar("import_cookie", { accountId: account.id, cookieText: value.trim() });
-    if (result?.ok) {
-      ElMessage.success("Cookie 导入成功");
-      if (result.data?.state) applyState(result.data.state);
-      try {
-        await ElMessageBox.confirm("Cookie 导入成功，是否立即采集？", "立即采集", {
-          confirmButtonText: "立即采集",
-          cancelButtonText: "稍后",
-          type: "success",
-        });
-        await onCaptureAccountDirect(account);
-      } catch {
-        // 用户选择稍后
-      }
-    }
-  } catch {
-    // 用户取消
-  }
-}
-
 async function onGrabBrowser(account) {
   if (!account) return;
   // 各平台登录后台 URL 与显示文案
@@ -470,6 +422,15 @@ async function onGrabBrowser(account) {
 
   // 其他失败场景：把 sidecar 返回的技术消息转成客户能看懂的指引
   const status = grabResult?.data?.browserStatus || "";
+  // 浏览器在调试模式但没拿到平台 cookie——后端已自动打开登录页，提示客户登录后再点
+  if (status === "running_with_debug" && grabResult?.data?.loginPageOpened) {
+    await ElMessageBox.alert(
+      `已为你在浏览器中打开${cfg.label}登录页。\n\n请在浏览器里完成登录后，再点一次「浏览器」按钮即可导入登录信息。`,
+      `登录${cfg.label}`,
+      { confirmButtonText: "我知道了", type: "success" },
+    );
+    return;
+  }
   let friendlyMsg = grabResult?.data?.message || grabResult?.message || "导入失败，请稍后重试";
   if (status === "not_running") {
     friendlyMsg = `请先打开 360 极速浏览器，并登录${cfg.label}后台，再点「浏览器」按钮。`;

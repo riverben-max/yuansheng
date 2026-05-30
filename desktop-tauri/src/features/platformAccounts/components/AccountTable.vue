@@ -7,11 +7,6 @@
       </div>
       <div class="toolbar">
         <el-button @click="$emit('create')">新增登录账户</el-button>
-        <el-button :disabled="!selectedAccount" @click="$emit('edit', selectedAccount)">编辑选中账户</el-button>
-        <el-button :disabled="!selectedAccount" type="danger" plain @click="$emit('delete', selectedAccount)">删除选中账户</el-button>
-        <el-button v-if="selectedUsesCookieImport" :disabled="!selectedAccount" type="warning" plain @click="$emit('import-cookie', selectedAccount)">导入Cookie</el-button>
-        <el-button v-if="selectedSupportsBrowserGrab" :disabled="!selectedAccount" type="primary" plain @click="$emit('grab-browser', selectedAccount)">从浏览器导入</el-button>
-        <el-button v-if="!selectedUsesCookieImport" :disabled="!selectedAccount || loginBusy" @click="$emit('login', selectedAccount)">登录/重新登录选中账户</el-button>
         <el-button :disabled="!selectedAccount || selectedAccount.enabled === false || captureBusy" type="success" @click="$emit('capture', selectedAccount)">采集选中账号</el-button>
       </div>
     </div>
@@ -62,15 +57,11 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="188" fixed="right">
+      <el-table-column label="操作" width="140" fixed="right">
         <template #default="{ row }">
           <div class="row-actions">
-            <el-button v-if="usesCookieImportLogin(row)" size="small" type="warning" plain @click="$emit('import-cookie', row)">导入</el-button>
             <el-button v-if="supportsBrowserGrab(row)" size="small" type="primary" plain @click="$emit('grab-browser', row)">浏览器</el-button>
-            <el-button v-if="!usesCookieImportLogin(row)" size="small" :disabled="loginBusy" @click="$emit('login', row)">登录</el-button>
-            <el-button v-if="row.platform === 'qn' || !row.platform" size="small" type="primary" plain :disabled="captureBusy || row.enabled === false" @click="$emit('capture-direct', row)">直采</el-button>
             <el-button size="small" type="success" plain :disabled="captureBusy || row.enabled === false" @click="$emit('capture', row)">采集</el-button>
-            <el-button size="small" type="danger" plain @click="$emit('delete', row)">删除</el-button>
           </div>
         </template>
       </el-table-column>
@@ -103,12 +94,7 @@ const emit = defineEmits([
   "update:activePlatformFilter",
   "update:selectedAccount",
   "create",
-  "edit",
-  "delete",
-  "login",
   "capture",
-  "capture-direct",
-  "import-cookie",
   "grab-browser",
 ]);
 
@@ -122,9 +108,6 @@ const filteredAccounts = computed(() =>
 const accountSummaryText = computed(() =>
   summarizeAccounts(props.accounts, props.activePlatformFilter),
 );
-
-const selectedUsesCookieImport = computed(() => usesCookieImportLogin(props.selectedAccount));
-const selectedSupportsBrowserGrab = computed(() => supportsBrowserGrab(props.selectedAccount));
 
 watch(() => props.activePlatformFilter, (val) => {
   localFilter.value = val;
@@ -143,10 +126,6 @@ function onFilterChange(val) {
 
 function onSelectionChange(row) {
   emit("update:selectedAccount", row);
-}
-
-function usesCookieImportLogin(account) {
-  return String(account?.platform || "").trim().toLowerCase() === "douyin";
 }
 
 function supportsBrowserGrab(account) {

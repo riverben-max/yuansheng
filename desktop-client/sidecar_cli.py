@@ -59,7 +59,7 @@ from startup_manager import ensure_autostart, is_autostart_enabled
 from upload_client import UploadClientError, upload_employee_payload, ensure_default_auth_config
 
 APP_NAME = "远盛数据助手"
-SIDECAR_VERSION = "1.1.7"
+SIDECAR_VERSION = "1.1.8"
 DEFAULT_SERVER_URL = "http://120.27.22.50"
 DEFAULT_UPDATE_CHECK_URL = "http://120.27.22.50/desktop/update.json"
 DIRECT_API_TEMPLATE_NAME = "direct_api_capture.template.json"
@@ -1099,11 +1099,29 @@ class SidecarApp:
             })
 
         if not cookie_header:
+            # 浏览器在调试模式但没读到目标平台 cookie：自动新开标签页跳到登录页，引导客户登录
+            from browser_debug_setup import PLATFORM_LOGIN_URLS, open_url_in_existing_browser
+            login_url = PLATFORM_LOGIN_URLS.get(platform, "")
+            platform_label = {"qn": "千牛", "jd": "京东", "pdd": "拼多多", "douyin": "抖店"}.get(platform, platform or "对应平台")
+            login_page_opened = False
+            if login_url:
+                try:
+                    open_url_in_existing_browser(port, login_url)
+                    login_page_opened = True
+                    self.log(f"已在浏览器里为客户打开 {platform_label} 登录页：{login_url}")
+                except Exception as exc:
+                    self.log(f"自动打开 {platform_label} 登录页失败（不影响后续手动登录）：{exc}")
+            if login_page_opened:
+                msg = f"已为你打开{platform_label}登录页。请在浏览器中完成登录后，再点一次「浏览器」按钮。"
+            else:
+                msg = f"未读取到{platform_label}登录信息，请先在浏览器里登录{platform_label}后台再点「浏览器」按钮。"
             return self.response({
                 "cookieSaved": False,
-                "message": f"未读取到 {platform} 平台相关的 Cookie，请先在浏览器中登录对应平台后台。",
+                "message": msg,
                 "browserStatus": "running_with_debug",
                 "needsSetup": False,
+                "loginPageOpened": login_page_opened,
+                "platformLabel": platform_label,
             })
 
         # 4) 身份识别（无锁，可能调用平台 API）
@@ -1573,16 +1591,26 @@ def _resolve_pdd_user_info(cookie_header: str, log: Callable) -> tuple[str, str]
 
 
 def _resolve_qn_identity_from_cookie(cookie_header: str) -> str:
-    """从千牛 Cookie 中提取客服名（sn/_nk_/tracknick）。"""
+    """从千牛 Cookie 中提取客服名（sn/_nk_/tracknick/lgc）。
+
+    跳过 ``tb`` + 纯数字这种淘宝内部分配的子账号 ID（对客户没意义），
+    避免把 ``tb992171539020`` 这种当成"识别名"显示。
+    """
+    import re as _re
     cookie_values: dict[str, str] = {}
     for part in str(cookie_header or "").split(";"):
         name, sep, value = part.strip().partition("=")
         if sep and name:
             cookie_values[name.strip()] = value.strip()
-    for key in ("sn", "_nk_", "tracknick", "lgc"):
+    # 优先用真实中文昵称
+    for key in ("sn", "_nk_", "tracknick"):
         value = str(cookie_values.get(key) or "").strip()
         if value:
             return unquote(value)
+    # lgc 兜底，但跳过 "tb<数字>" 这种内部 ID 模式
+    lgc = unquote(str(cookie_values.get("lgc") or "").strip())
+    if lgc and not _re.fullmatch(r"tb\d+", lgc):
+        return lgc
     return ""
 
 
@@ -1640,3 +1668,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
