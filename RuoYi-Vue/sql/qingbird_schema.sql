@@ -37,8 +37,8 @@ INSERT INTO `biz_shop` (`shop_id`, `shop_name`, `platform_type`, `login_account`
 
 -- ----------------------------
 -- 2. 采集数据明细表 biz_spider_data
---    唯一键: (login_account, platform_type, record_date, sub_account)
---    即：同一平台登录账号 + 同一天 + 同一子账号 只保留一条记录（upsert）
+--    业务约定: 客户端上传 N 条就保留 N 条，不在 (login_account, sub_account, date)
+--    维度做服务端去重；同一店铺多个登录账号即使采集到同名子账号也独立保存。
 -- ----------------------------
 DROP TABLE IF EXISTS `biz_spider_data`;
 CREATE TABLE `biz_spider_data` (
@@ -69,7 +69,7 @@ CREATE TABLE `biz_spider_data` (
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '上传时间',
   `update_time` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '最近更新时间',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_login_platform_date_sub` (`login_account`,`platform_type`,`record_date`,`sub_account`) COMMENT '同一平台登录账号同一天同一子账号不重复',
+  KEY `idx_login_platform_date_sub` (`login_account`,`platform_type`,`record_date`,`sub_account`) COMMENT '辅助查询索引（不做唯一约束）',
   KEY `idx_branch_id` (`branch_id`),
   KEY `idx_login_account` (`login_account`),
   KEY `idx_record_date` (`record_date`),

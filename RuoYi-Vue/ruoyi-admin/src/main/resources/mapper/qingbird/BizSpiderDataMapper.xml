@@ -76,6 +76,8 @@
         employee_id 可为 null（无档案时），重复时更新所有业务字段，保留首次 create_time。
     -->
     <insert id="upsertSpiderData" parameterType="com.ruoyi.qingbird.domain.BizSpiderData" useGeneratedKeys="true" keyProperty="id">
+        <!-- 业务约定：客户端上传 N 条就保留 N 条，不做服务端去重。
+             同一店铺多个登录账号即使采集到同名子账号也独立保存。 -->
         insert into biz_spider_data (
             employee_id, branch_id, platform_type, login_account,
             record_date, sub_account,
@@ -93,27 +95,6 @@
             #{replyRate}, #{satisfaction}, #{shopSatisfaction},
             #{rawMetrics}, #{uploadIp}, #{isAbnormal}, #{abnormalReason}, sysdate()
         )
-        on duplicate key update
-            employee_id               = values(employee_id),
-            branch_id                 = values(branch_id),
-            login_account             = values(login_account),
-            consultation_count        = values(consultation_count),
-            reception_count           = values(reception_count),
-            effective_reception_count = values(effective_reception_count),
-            conversion_rate           = values(conversion_rate),
-            first_response_time       = values(first_response_time),
-            avg_response_time         = values(avg_response_time),
-            sales_amount              = values(sales_amount),
-            response_rate_3m          = values(response_rate_3m),
-            response_rate_30s         = values(response_rate_30s),
-            reply_rate                = values(reply_rate),
-            satisfaction              = values(satisfaction),
-            shop_satisfaction         = values(shop_satisfaction),
-            raw_metrics               = values(raw_metrics),
-            upload_ip                 = values(upload_ip),
-            is_abnormal               = values(is_abnormal),
-            abnormal_reason           = values(abnormal_reason),
-            update_time               = sysdate()
     </insert>
 
     <delete id="deleteSpiderDataById">
