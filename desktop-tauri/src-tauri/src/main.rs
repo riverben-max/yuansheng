@@ -6,6 +6,10 @@ use std::io::BufReader;
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 use std::time::Duration;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -143,6 +147,9 @@ fn sidecar_timeout_secs(command: &str) -> u64 {
     match command {
         "poll_login" => POLL_LOGIN_TIMEOUT_SECS,
         "start_login" => START_LOGIN_TIMEOUT_SECS,
+        "setup_browser_debug" => 30,
+        "relaunch_browser_for_debug" => 30,
+        "grab_browser_cookie" => 60,
         value if value.starts_with("capture_") => CAPTURE_TIMEOUT_SECS,
         _ => DEFAULT_SIDECAR_TIMEOUT_SECS,
     }
@@ -266,7 +273,29 @@ fn build_sidecar_process(
         return spawn_sidecar(Command::new(exe), command, payload_text);
     }
 
-    // 2. Bundled sidecar next to the Tauri executable.
+    // 2. Debug build: prefer Python script for fast iteration without rebuilding sidecar.exe.
+    //    Set YUANSHENG_FORCE_BUNDLED_SIDECAR=1 to skip this and use the bundled exe instead.
+    #[cfg(debug_assertions)]
+    {
+        if env::var("YUANSHENG_FORCE_BUNDLED_SIDECAR").is_err() {
+            if let Ok(script) = dev_sidecar_script() {
+                let mut last_err = String::new();
+                for python_cmd in &["python3", "python", "py"] {
+                    let mut cmd = Command::new(python_cmd);
+                    cmd.arg(&script);
+                    match spawn_sidecar(cmd, command, payload_text) {
+                        Ok(child) => return Ok(child),
+                        Err(e) => { last_err = e; }
+                    }
+                }
+                eprintln!(
+                    "[dev] Python sidecar 启动失败，回退到打包二进制。最近错误：{last_err}"
+                );
+            }
+        }
+    }
+
+    // 3. Bundled sidecar next to the Tauri executable.
     if let Ok(exe_dir) = app
         .path()
         .resource_dir()
@@ -277,7 +306,7 @@ fn build_sidecar_process(
         }
     }
 
-    // 3. Development: Python script relative to the Cargo manifest.
+    // 4. Release fallback: development Python script (e.g., when running unbundled).
     let script = dev_sidecar_script()?;
     let mut last_err = "".to_string();
     for python_cmd in &["python3", "python", "py"] {
@@ -298,6 +327,8 @@ fn spawn_sidecar(
 ) -> Result<std::process::Child, String> {
     command_builder.env("PYTHONUTF8", "1");
     command_builder.env("PYTHONIOENCODING", "utf-8");
+    #[cfg(windows)]
+    command_builder.creation_flags(CREATE_NO_WINDOW);
     command_builder
         .arg(command)
         .arg(payload_text)

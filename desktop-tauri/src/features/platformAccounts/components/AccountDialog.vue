@@ -6,17 +6,25 @@
           <el-option v-for="item in accountPlatformOptions" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
       </el-form-item>
-      <el-form-item label="店铺名称">
-        <el-input v-model="account.shopName" placeholder="用于上传展示和账号识别" />
-      </el-form-item>
-      <el-form-item label="显示名称">
-        <el-input v-model="account.displayName" placeholder="账号列表展示名称" />
-      </el-form-item>
-      <el-form-item label="登录识别名">
-        <el-input v-model="account.loginHint" placeholder="多客服数据匹配用，如客服名、PIN 或 UID" />
-      </el-form-item>
-      <el-form-item label="后端店铺 ID">
-        <el-input-number v-model="account.shopId" :min="0" class="full-input" controls-position="right" />
+      <!-- 新增时只显示平台 + 启用，其他字段在 Cookie 导入后自动识别填充。编辑时显示全部字段方便修改。 -->
+      <template v-if="account.id">
+        <el-form-item label="店铺名称">
+          <el-input v-model="account.shopName" placeholder="用于上传展示和账号识别" />
+        </el-form-item>
+        <el-form-item label="显示名称">
+          <el-input v-model="account.displayName" placeholder="账号列表展示名称" />
+        </el-form-item>
+        <el-form-item label="登录识别名">
+          <el-input v-model="account.loginHint" placeholder="多客服数据匹配用，如客服名、PIN 或 UID" />
+        </el-form-item>
+        <el-form-item label="后端店铺 ID">
+          <el-input-number v-model="account.shopId" :min="0" class="full-input" controls-position="right" />
+        </el-form-item>
+      </template>
+      <el-form-item v-else>
+        <el-alert type="info" show-icon :closable="false">
+          其他信息（店铺名、客服名、店铺 ID）会在导入 Cookie 时自动识别。如需修改，可在保存后再点“编辑”。
+        </el-alert>
       </el-form-item>
       <el-form-item label="启用">
         <el-switch v-model="account.enabled" />

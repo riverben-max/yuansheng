@@ -63,6 +63,23 @@ class SidecarStateTests(unittest.TestCase):
         self.assertEqual(len(data["loginAccounts"]), 1)
         self.assertEqual(data["loginAccounts"][0]["id"], "default")
 
+    def test_get_state_initializes_direct_api_template_without_cookie(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            app = SidecarApp(data_dir=data_dir, emit=lambda _event: None)
+
+            result = app.get_state({})
+            config_path = data_dir / "direct_api_capture.json"
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+
+            self.assertTrue(result["ok"])
+            self.assertTrue(config["enabled"])
+            self.assertNotIn("cookie", config)
+            self.assertNotIn("cookieProtected", config)
+            self.assertIsInstance(config["requests"], list)
+            self.assertGreaterEqual(len(config["requests"]), 1)
+            self.assertTrue(result["data"]["directApiConfigReady"])
+
     def test_public_state_hides_protected_cookie_but_keeps_capture_summary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             app = SidecarApp(data_dir=Path(temp_dir), emit=lambda _event: None)
@@ -1983,6 +2000,106 @@ class SidecarCaptureTests(unittest.TestCase):
         self.assertEqual(result["data"]["results"], [])
         self.assertEqual(result["data"]["skipped"], True)
         self.assertEqual(captured_platforms, [])
+
+
+class SidecarUpdateTests(unittest.TestCase):
+    def test_check_update_uses_default_server_manifest_and_returns_metadata(self) -> None:
+        opened_urls = []
+
+        class FakeUrlResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, _exc_type, _exc, _traceback):
+                return False
+
+            def read(self):
+                return json.dumps(
+                    {
+                        "version": "999.0.0",
+                        "downloadUrl": "http://120.27.22.50/downloads/yuansheng-data-assistant-999.0.0-x64-setup.exe",
+                        "sha256": "abc123",
+                        "notes": "修复安装包",
+                        "force": True,
+                    },
+                    ensure_ascii=False,
+                ).encode("utf-8")
+
+        def fake_urlopen(request, timeout, context):  # noqa: ANN001, ANN202
+            opened_urls.append(request.full_url)
+            self.assertEqual(timeout, 8)
+            self.assertIsNotNone(context)
+            return FakeUrlResponse()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = SidecarApp(data_dir=Path(temp_dir), emit=lambda _event: None)
+            original_urlopen = sidecar_cli.urllib.request.urlopen
+            sidecar_cli.urllib.request.urlopen = fake_urlopen
+            try:
+                result = app.check_update({})
+            finally:
+                sidecar_cli.urllib.request.urlopen = original_urlopen
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(opened_urls, [sidecar_cli.DEFAULT_UPDATE_CHECK_URL])
+        self.assertTrue(result["data"]["updateAvailable"])
+        self.assertEqual(result["data"]["latestVersion"], "999.0.0")
+        self.assertEqual(result["data"]["sha256"], "abc123")
+        self.assertEqual(result["data"]["notes"], "修复安装包")
+        self.assertTrue(result["data"]["force"])
+
+    def test_check_update_ignores_same_or_older_version(self) -> None:
+        class FakeUrlResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, _exc_type, _exc, _traceback):
+                return False
+
+            def read(self):
+                return json.dumps({"version": sidecar_cli.SIDECAR_VERSION}).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = SidecarApp(data_dir=Path(temp_dir), emit=lambda _event: None)
+            original_urlopen = sidecar_cli.urllib.request.urlopen
+            sidecar_cli.urllib.request.urlopen = lambda *_args, **_kwargs: FakeUrlResponse()
+            try:
+                result = app.check_update({})
+            finally:
+                sidecar_cli.urllib.request.urlopen = original_urlopen
+
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["data"]["updateAvailable"])
+
+    def test_check_update_reports_html_manifest_response_clearly(self) -> None:
+        events = []
+
+        class FakeUrlResponse:
+            headers = {"Content-Type": "text/html; charset=utf-8"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, _exc_type, _exc, _traceback):
+                return False
+
+            def read(self):
+                return b"<!doctype html><html><body>index</body></html>"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = SidecarApp(data_dir=Path(temp_dir), emit=events.append)
+            original_urlopen = sidecar_cli.urllib.request.urlopen
+            sidecar_cli.urllib.request.urlopen = lambda *_args, **_kwargs: FakeUrlResponse()
+            try:
+                result = app.check_update({})
+            finally:
+                sidecar_cli.urllib.request.urlopen = original_urlopen
+
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["data"]["updateAvailable"])
+        self.assertIn("更新清单不是 JSON", result["data"]["reason"])
+        self.assertIn("text/html", result["data"]["reason"])
+        self.assertTrue(any("更新清单不是 JSON" in str(item.get("message") or "") for item in events))
 
 
 if __name__ == "__main__":

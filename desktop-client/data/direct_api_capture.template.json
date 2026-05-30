@@ -1,0 +1,54 @@
+{
+  "enabled": true,
+  "referer": "https://myseller.taobao.com/home.htm/op-sycm-svc/overview",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+  "loginAccount": "",
+  "subAccount": "",
+  "requests": [
+    {
+      "name": "qn-workload-primary",
+      "method": "GET",
+      "apiUrl": "https://h5api.m.taobao.com/h5/mtop.alibaba.sycm.domain.onequery/1.0/",
+      "params": {
+        "jsv": "2.6.1",
+        "appKey": "12574478",
+        "t": "1777182250798",
+        "sign": "placeholder",
+        "api": "mtop.alibaba.sycm.domain.onequery",
+        "v": "1.0",
+        "ttid": "11320@taobao_WEB_9.9.99",
+        "type": "originaljsonp",
+        "dataType": "originaljsonp",
+        "callback": "mtopjsonp20",
+        "data": "{\"domainCode\":\"tao.shop.qos.subaccount\",\"dateType\":\"day\",\"dateRange\":\"2026-04-25|2026-04-25\",\"showType\":\"list\",\"device\":\"0\",\"page\":1,\"pageSize\":10,\"indexCodes\":\"consultUserCnt,consultFinalPayRate,avgReplyInterval,customerAllSateRate,customerServiceGmv,servSaleRate\",\"order\":\"desc\",\"orderBy\":\"consultUserCnt\",\"extMap\":\"{\\\"greyTag\\\":\\\"Y\\\"}\"}"
+      },
+      "body": {},
+      "autoMtopSign": true,
+      "autoDateRange": true
+    },
+    {
+      "name": "qn-workload-reply",
+      "method": "GET",
+      "apiUrl": "https://h5api.m.taobao.com/h5/mtop.alibaba.sycm.domain.onequery/1.0/",
+      "params": {
+        "jsv": "2.6.1",
+        "appKey": "12574478",
+        "t": "1777182387321",
+        "sign": "placeholder",
+        "api": "mtop.alibaba.sycm.domain.onequery",
+        "v": "1.0",
+        "ttid": "11320@taobao_WEB_9.9.99",
+        "type": "originaljsonp",
+        "dataType": "originaljsonp",
+        "callback": "mtopjsonp47",
+        "data": "{\"domainCode\":\"tao.shop.qos.subaccount\",\"dateType\":\"day\",\"dateRange\":\"2026-04-25|2026-04-25\",\"showType\":\"list\",\"device\":\"0\",\"page\":1,\"pageSize\":10,\"indexCodes\":\"wwwConsultUv,validReplyUv,wwwRecUserCnt,customerAllSateRate,wwUserReplayRate,firstReplyInterval\",\"order\":\"desc\",\"orderBy\":\"consultUserCnt\",\"extMap\":\"{\\\"greyTag\\\":\\\"Y\\\"}\"}"
+      },
+      "body": {},
+      "autoMtopSign": true,
+      "autoDateRange": true
+    }
+  ],
+  "autoMtopSign": true,
+  "autoDateRange": true,
+  "dateOffsetDays": -1
+}

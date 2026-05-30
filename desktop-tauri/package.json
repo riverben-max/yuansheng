@@ -1,20 +1,23 @@
 {
   "name": "yuansheng-data-assistant-tauri",
-  "version": "0.1.0",
+  "version": "1.1.6",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
+    "validate:release": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/validate_release_config.ps1",
+    "release:update-files": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/prepare_update_release.ps1",
     "build:sidecar": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build_sidecar.ps1",
     "tauri:dev": "tauri dev",
-    "pretauri:build": "npm run build:sidecar",
+    "pretauri:build": "npm run validate:release && npm run build:sidecar",
     "tauri:build": "tauri build"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
     "@tauri-apps/api": "^2.8.0",
+    "@tauri-apps/plugin-opener": "^2.5.0",
     "element-plus": "^2.13.1",
     "vue": "^3.5.26"
   },

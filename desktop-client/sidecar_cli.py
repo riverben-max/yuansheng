@@ -59,8 +59,10 @@ from startup_manager import ensure_autostart, is_autostart_enabled
 from upload_client import UploadClientError, upload_employee_payload, ensure_default_auth_config
 
 APP_NAME = "远盛数据助手"
-SIDECAR_VERSION = "1.0.0"
+SIDECAR_VERSION = "1.1.6"
 DEFAULT_SERVER_URL = "http://120.27.22.50"
+DEFAULT_UPDATE_CHECK_URL = "http://120.27.22.50/desktop/update.json"
+DIRECT_API_TEMPLATE_NAME = "direct_api_capture.template.json"
 CONFIG_ERROR_MARKERS = ("配置文件", "合法 JSON", "未启用", "缺少", "根节点", "config")
 LOGIN_PENDING_STATUSES = {"等待登录", "等待扫码", "等待登录检测", "正在清理临时浏览器"}
 _PROCESS_LOCK = threading.RLock()
@@ -101,9 +103,104 @@ def default_state(data_dir: Path) -> Dict[str, Any]:
         "exitRequiresConfirm": True,
         "shadowChromePid": 0,
         "serverUrl": DEFAULT_SERVER_URL,
+        "updateCheckUrl": DEFAULT_UPDATE_CHECK_URL,
         "uploadTimeoutSeconds": 10,
         "uploadHistory": {},
     }
+
+
+def default_direct_api_template() -> Dict[str, Any]:
+    return {
+        "enabled": True,
+        "referer": "https://myseller.taobao.com/home.htm/op-sycm-svc/overview",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "loginAccount": "",
+        "subAccount": "",
+        "requests": [
+            {
+                "name": "qn-workload-primary",
+                "method": "GET",
+                "apiUrl": "https://h5api.m.taobao.com/h5/mtop.alibaba.sycm.domain.onequery/1.0/",
+                "params": {
+                    "jsv": "2.6.1",
+                    "appKey": "12574478",
+                    "t": "1777182250798",
+                    "sign": "placeholder",
+                    "api": "mtop.alibaba.sycm.domain.onequery",
+                    "v": "1.0",
+                    "ttid": "11320@taobao_WEB_9.9.99",
+                    "type": "originaljsonp",
+                    "dataType": "originaljsonp",
+                    "callback": "mtopjsonp20",
+                    "data": "{\"domainCode\":\"tao.shop.qos.subaccount\",\"dateType\":\"day\",\"dateRange\":\"2026-04-25|2026-04-25\",\"showType\":\"list\",\"device\":\"0\",\"page\":1,\"pageSize\":10,\"indexCodes\":\"consultUserCnt,consultFinalPayRate,avgReplyInterval,customerAllSateRate,customerServiceGmv,servSaleRate\",\"order\":\"desc\",\"orderBy\":\"consultUserCnt\",\"extMap\":\"{\\\"greyTag\\\":\\\"Y\\\"}\"}",
+                },
+                "body": {},
+                "autoMtopSign": True,
+                "autoDateRange": True,
+            },
+            {
+                "name": "qn-workload-reply",
+                "method": "GET",
+                "apiUrl": "https://h5api.m.taobao.com/h5/mtop.alibaba.sycm.domain.onequery/1.0/",
+                "params": {
+                    "jsv": "2.6.1",
+                    "appKey": "12574478",
+                    "t": "1777182387321",
+                    "sign": "placeholder",
+                    "api": "mtop.alibaba.sycm.domain.onequery",
+                    "v": "1.0",
+                    "ttid": "11320@taobao_WEB_9.9.99",
+                    "type": "originaljsonp",
+                    "dataType": "originaljsonp",
+                    "callback": "mtopjsonp47",
+                    "data": "{\"domainCode\":\"tao.shop.qos.subaccount\",\"dateType\":\"day\",\"dateRange\":\"2026-04-25|2026-04-25\",\"showType\":\"list\",\"device\":\"0\",\"page\":1,\"pageSize\":10,\"indexCodes\":\"wwwConsultUv,validReplyUv,wwwRecUserCnt,customerAllSateRate,wwUserReplayRate,firstReplyInterval\",\"order\":\"desc\",\"orderBy\":\"consultUserCnt\",\"extMap\":\"{\\\"greyTag\\\":\\\"Y\\\"}\"}",
+                },
+                "body": {},
+                "autoMtopSign": True,
+                "autoDateRange": True,
+            },
+        ],
+        "autoMtopSign": True,
+        "autoDateRange": True,
+        "dateOffsetDays": -1,
+    }
+
+
+def _template_search_paths() -> list[Path]:
+    paths = []
+    if hasattr(sys, "_MEIPASS"):
+        paths.append(Path(getattr(sys, "_MEIPASS")) / "data" / DIRECT_API_TEMPLATE_NAME)
+    paths.append(Path(__file__).resolve().parent / "data" / DIRECT_API_TEMPLATE_NAME)
+    return paths
+
+
+def load_direct_api_template() -> Dict[str, Any]:
+    for path in _template_search_paths():
+        try:
+            if path.exists():
+                loaded = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    return loaded
+        except (json.JSONDecodeError, OSError):
+            continue
+    return default_direct_api_template()
+
+
+def ensure_direct_api_config(config_path: Path) -> bool:
+    if config_path.exists():
+        return True
+    template = load_direct_api_template()
+    template.pop("cookie", None)
+    template.pop("cookieProtected", None)
+    requests = template.get("requests")
+    if isinstance(requests, list):
+        for item in requests:
+            if isinstance(item, dict):
+                item.pop("cookie", None)
+                item.pop("cookieProtected", None)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps(template, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
+    return True
 
 
 def event(kind: str, **payload: Any) -> Dict[str, Any]:
@@ -204,6 +301,14 @@ class SidecarApp:
                 self.emit(event("log", time=datetime.now().strftime("%H:%M:%S"),
                                  message=f"无法读取配置文件（{self.state_path}），使用默认配置。"))
         state["directApiConfigPath"] = str(self.data_dir / "direct_api_capture.json")
+        if not str(state.get("updateCheckUrl") or "").strip():
+            state["updateCheckUrl"] = DEFAULT_UPDATE_CHECK_URL
+        try:
+            state["directApiConfigReady"] = ensure_direct_api_config(Path(str(state["directApiConfigPath"])))
+        except OSError as exc:
+            state["directApiConfigReady"] = False
+            self.emit(event("log", time=datetime.now().strftime("%H:%M:%S"),
+                            message=f"初始化接口直采配置失败：{sanitize_sensitive_text(exc)}"))
         ensure_login_accounts(state, self.data_dir)
         return state
 
@@ -716,21 +821,24 @@ class SidecarApp:
 
     def check_update(self, _payload: Mapping[str, Any] | None = None) -> Dict[str, Any]:
         state = self.load_state()
-        update_url = str(state.get("updateCheckUrl") or "").strip()
+        update_url = str(state.get("updateCheckUrl") or DEFAULT_UPDATE_CHECK_URL).strip()
         if not update_url:
             return self.response({"updateAvailable": False, "currentVersion": SIDECAR_VERSION})
         try:
             ctx = ssl.create_default_context()
             req = urllib.request.Request(update_url, headers={"User-Agent": f"YuanshengDataAssistant/{SIDECAR_VERSION}"})
             with urllib.request.urlopen(req, timeout=8, context=ctx) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+                data = _read_update_manifest_response(resp)
             latest = str(data.get("version") or "").strip()
-            if latest and latest != SIDECAR_VERSION:
+            if latest and _version_is_newer(latest, SIDECAR_VERSION):
                 return self.response({
                     "updateAvailable": True,
                     "currentVersion": SIDECAR_VERSION,
                     "latestVersion": latest,
                     "downloadUrl": str(data.get("downloadUrl") or ""),
+                    "sha256": str(data.get("sha256") or ""),
+                    "notes": str(data.get("notes") or ""),
+                    "force": bool(data.get("force", False)),
                 })
             return self.response({"updateAvailable": False, "currentVersion": SIDECAR_VERSION})
         except Exception as exc:
@@ -741,6 +849,308 @@ class SidecarApp:
         state = self.load_state()
         shutdown_shadow_browser(state, self.log)
         return self.response({"closed": True})
+
+    def setup_browser_debug(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        from browser_debug_setup import (
+            BROWSER_DEBUG_PORT,
+            ShortcutModifyError,
+            add_debug_port_to_shortcut,
+            create_debug_shortcut,
+            detect_browser_debug_status,
+            find_browser_shortcuts,
+        )
+
+        account_id = str(payload.get("accountId") or payload.get("id") or "")
+        port = int(payload.get("port") or BROWSER_DEBUG_PORT)
+        browser_exe = str(payload.get("browserExePath") or "").strip() or None
+
+        # 1) 扫描 + 修改快捷方式（无锁，IO 密集）
+        all_shortcuts = find_browser_shortcuts(browser_exe)
+        # 优先处理 360 浏览器快捷方式；如果完全没有 360 快捷方式，再考虑 Chrome 等其他浏览器
+        sc_360 = [sc for sc in all_shortcuts if sc.get("is_360")]
+        sc_other = [sc for sc in all_shortcuts if not sc.get("is_360")]
+        target_shortcuts = sc_360 if sc_360 else sc_other
+
+        results = []
+        created_new = False
+        if target_shortcuts:
+            for sc in target_shortcuts:
+                try:
+                    result = add_debug_port_to_shortcut(sc["path"], port)
+                    results.append(result)
+                except ShortcutModifyError as exc:
+                    results.append({"modified": False, "path": sc["path"], "error": str(exc)})
+
+        # 如果没找到任何 360 快捷方式（哪怕找到了 Chrome 的也不算），自动创建一个 360 桌面快捷方式
+        # 这是给客户机器上 360 没装快捷方式（从应用启动器/任务栏固定区启动）的兜底
+        if not sc_360:
+            try:
+                created = create_debug_shortcut(browser_exe, port)
+                results.append({
+                    "modified": True,
+                    "created": True,
+                    "path": created["path"],
+                    "arguments": created["arguments"],
+                })
+                created_new = True
+            except ShortcutModifyError as exc:
+                # 如果至少修改了 Chrome 等其他快捷方式，不报错；都没改才报错
+                if not target_shortcuts:
+                    raise ValueError(f"未找到浏览器快捷方式，且自动创建失败：{exc}")
+                self.log(f"自动创建 360 快捷方式失败（已修改其他快捷方式）：{exc}")
+
+        modified_count = sum(1 for r in results if r.get("modified"))
+        failed_count = sum(1 for r in results if r.get("error"))
+        total_count = len(results)
+        # ready_count = 已经处于"带调试端口"状态的快捷方式总数（包括本次刚改的 + 之前已经有的）
+        ready_count = sum(
+            1 for r in results
+            if r.get("modified") or f"--remote-debugging-port={port}" in str(r.get("arguments", ""))
+        )
+        browser_status = detect_browser_debug_status(port)
+        needs_restart = browser_status["status"] == "running_no_debug"
+
+        # 2) 仅在保存账号字段时持锁
+        public_state = None
+        if account_id:
+            with self.state_file_lock():
+                state = self.load_state()
+                account = self.find_account(state, account_id)
+                if account is not None:
+                    account["browserDebugPort"] = port
+                    now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    account["browserDebugSetupAt"] = now_text
+                    if browser_exe:
+                        account["browserExePath"] = browser_exe
+                    self.save_state(state)
+                public_state = self.public_state(state)
+        else:
+            with self.state_file_lock():
+                public_state = self.public_state(self.load_state())
+
+        action = "创建了新" if created_new else "修改了"
+        self.log(
+            f"浏览器调试设置完成：{action} {modified_count} 个快捷方式（共发现 {total_count} 个，失败 {failed_count} 个），"
+            f"端口 {port}，需要重启={needs_restart}。"
+        )
+        if created_new:
+            self.log("已为你在桌面创建「抖店采集专用浏览器」快捷方式，请用它启动浏览器，登录抖店后再点「浏览器」按钮。")
+        # 把详细诊断信息打到运行日志，让客户看到当前状态以及下一步该做什么
+        from browser_debug_setup import collect_browser_diagnostics
+        self.log("当前浏览器状态详情：")
+        for line in collect_browser_diagnostics(port):
+            self.log(line)
+
+        return self.response({
+            "shortcuts": results,
+            "createdNew": created_new,
+            "modifiedCount": modified_count,
+            "failedCount": failed_count,
+            "totalCount": total_count,
+            "readyCount": ready_count,
+            "needsRestart": needs_restart,
+            "browserStatus": browser_status["status"],
+            "port": port,
+            "state": public_state,
+        })
+
+    def relaunch_browser_for_debug(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        """关闭客户当前的所有 360 浏览器进程，用调试端口模式重新启动并打开抖店登录页。
+
+        客户用现有的 360（同一个 exe、同一个 profile、同一个登录态），只是启动方式由软件接管，
+        不依赖客户的快捷方式（解决"客户机器没有 360 桌面快捷方式"或"客户从非标方式启动"的场景）。
+        """
+        import subprocess
+        import time as _time
+        from browser_debug_setup import (
+            BROWSER_DEBUG_PORT,
+            _get_running_360_exe,
+            _resolve_browser_exe,
+            _port_is_open,
+        )
+
+        port = int(payload.get("port") or BROWSER_DEBUG_PORT)
+        startup_url = str(payload.get("startupUrl") or "https://fxg.jinritemai.com").strip() or "https://fxg.jinritemai.com"
+
+        # 1. 拿到 360 exe 路径：先看运行中的进程，再走标准探测
+        exe = _get_running_360_exe() or _resolve_browser_exe()
+        if not exe:
+            raise ValueError("找不到 360 极速浏览器，请先在桌面打开一次 360，再点「浏览器」按钮。")
+
+        # 2. 关闭所有 360 进程
+        self.log("正在关闭浏览器以接管登录…")
+        for image_name in ("360ChromeX.exe", "360Chrome.exe"):
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/IM", image_name, "/T"],
+                    capture_output=True,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+                )
+            except Exception as exc:
+                self.log(f"关闭 {image_name} 时遇到异常（忽略继续）：{exc}")
+        # 等待端口释放 + 进程退出
+        for _ in range(20):  # 最多等 4 秒
+            if not _port_is_open(port):
+                break
+            _time.sleep(0.2)
+
+        # 3. 用调试端口启动新进程
+        try:
+            subprocess.Popen(
+                [exe, f"--remote-debugging-port={port}", startup_url],
+                creationflags=(
+                    getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+                    | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+                ),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+            )
+        except Exception as exc:
+            raise ValueError(f"启动浏览器失败：{exc}")
+
+        # 4. 等待端口就绪（最多 10 秒）
+        port_ready = False
+        for _ in range(50):
+            if _port_is_open(port):
+                port_ready = True
+                break
+            _time.sleep(0.2)
+
+        self.log(f"浏览器已用调试模式重新启动（端口 {port}）。请在弹出的浏览器里登录抖店后台后，再点一次「浏览器」按钮。")
+        return self.response({
+            "launched": True,
+            "exePath": exe,
+            "port": port,
+            "portReady": port_ready,
+            "startupUrl": startup_url,
+        })
+
+    def grab_browser_cookie(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+        from browser_debug_setup import (
+            BROWSER_DEBUG_PORT,
+            PLATFORM_COOKIE_DOMAINS,
+            BrowserDebugError,
+            BrowserNotReadyError,
+            detect_browser_debug_status,
+            grab_cookies_via_cdp,
+        )
+
+        # 1) 读取账号信息（短锁）
+        with self.state_file_lock():
+            state = self.load_state()
+            account_id = str(payload.get("accountId") or payload.get("id") or "")
+            if not account_id:
+                raise ValueError("请选择一个登录账号。")
+            account = self.find_account(state, account_id)
+            if account is None:
+                raise ValueError("登录账户不存在。")
+            platform = normalize_platform(account.get("platform") or payload.get("platform") or "")
+            port = int(payload.get("port") or account.get("browserDebugPort") or BROWSER_DEBUG_PORT)
+
+        target_domains = PLATFORM_COOKIE_DOMAINS.get(platform, [])
+
+        # 2) 浏览器状态检测（无锁）
+        browser_status = detect_browser_debug_status(port)
+        if browser_status["status"] != "running_with_debug":
+            status = browser_status["status"]
+            if status == "not_running":
+                msg = "浏览器未运行，请先打开 360 极速浏览器。"
+            elif status == "running_no_debug":
+                msg = "浏览器正在运行但未开启调试端口。请关闭浏览器后用修改过的快捷方式重新打开。"
+            elif status == "port_occupied_other":
+                msg = f"端口 {port} 被其他程序占用，无法连接浏览器。"
+            else:
+                msg = f"浏览器调试端口未就绪（状态：{status}）。"
+            # 把详细诊断信息打到运行日志，方便客户截图反馈
+            from browser_debug_setup import collect_browser_diagnostics
+            self.log(f"导入登录信息未成功（{status}）。详细诊断：")
+            for line in collect_browser_diagnostics(port):
+                self.log(line)
+            return self.response({
+                "cookieSaved": False,
+                "message": msg,
+                "browserStatus": status,
+                "needsSetup": status in ("not_running", "running_no_debug"),
+            })
+
+        # 3) CDP 读取 Cookie（无锁，可能耗时数秒）
+        try:
+            cookie_header = grab_cookies_via_cdp(port, target_domains)
+        except BrowserNotReadyError as exc:
+            return self.response({
+                "cookieSaved": False,
+                "message": str(exc),
+                "browserStatus": "connection_failed",
+                "needsSetup": False,
+            })
+        except BrowserDebugError as exc:
+            return self.response({
+                "cookieSaved": False,
+                "message": f"读取 Cookie 失败：{exc}",
+                "browserStatus": "read_failed",
+                "needsSetup": False,
+            })
+
+        if not cookie_header:
+            return self.response({
+                "cookieSaved": False,
+                "message": f"未读取到 {platform} 平台相关的 Cookie，请先在浏览器中登录对应平台后台。",
+                "browserStatus": "running_with_debug",
+                "needsSetup": False,
+            })
+
+        # 4) 身份识别（无锁，可能调用平台 API）
+        identity, shop_name = "", ""
+        if platform == "douyin":
+            identity, shop_name = _resolve_douyin_user_info(cookie_header, "", self.log)
+        elif platform == "pdd":
+            identity, _ = _resolve_pdd_user_info(cookie_header, self.log)
+        elif platform == "jd":
+            try:
+                from jd_workload_capture import resolve_jd_pin_from_cookie
+                identity = resolve_jd_pin_from_cookie(cookie_header)
+            except Exception as exc:
+                self.log(f"京东身份识别失败（不影响保存）：{exc}")
+        else:
+            try:
+                identity = _resolve_qn_identity_from_cookie(cookie_header)
+            except Exception as exc:
+                self.log(f"千牛身份识别失败（不影响保存）：{exc}")
+
+        # 5) 保存 state（短锁）
+        with self.state_file_lock():
+            state = self.load_state()
+            account = self.find_account(state, account_id)
+            if account is None:
+                raise ValueError("登录账户不存在（保存阶段）。")
+
+            now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            account["cookieProtected"] = protect_text(cookie_header)
+            account["cookieUpdatedAt"] = now_text
+            account["loginStatus"] = "已登录"
+            account["lastError"] = ""
+            account["lastFailureReason"] = ""
+
+            if identity:
+                account["lastKnownLoginAccount"] = identity
+                if not str(account.get("loginHint") or "").strip():
+                    account["loginHint"] = identity
+            if shop_name and not str(account.get("shopName") or "").strip():
+                account["shopName"] = shop_name
+
+            self.save_state(state)
+            public_state = self.public_state(state)
+
+        self.log(f"从浏览器导入 Cookie 成功（长度 {len(cookie_header)}），识别身份：{identity or '未识别'}，店铺：{shop_name or '未识别'}。")
+        return self.response({
+            "cookieSaved": True,
+            "identity": identity,
+            "shopName": shop_name,
+            "cookieLength": len(cookie_header),
+            "state": public_state,
+        })
 
     def capture_payload(self, state: MutableMapping[str, Any]) -> Mapping[str, Any]:
         if bool(state.get("directApiPreferred", True)):
@@ -871,6 +1281,56 @@ def upload_payload_with_state(
     return f"服务端上传成功：{result['message']}。", upload_record
 
 
+def _version_parts(version: str) -> tuple[int, ...]:
+    parts = []
+    for segment in str(version or "").split("."):
+        digits = ""
+        for char in segment:
+            if not char.isdigit():
+                break
+            digits += char
+        parts.append(int(digits or 0))
+    while len(parts) < 3:
+        parts.append(0)
+    return tuple(parts)
+
+
+def _version_is_newer(latest: str, current: str) -> bool:
+    return _version_parts(latest) > _version_parts(current)
+
+
+def _read_update_manifest_response(resp: Any) -> Dict[str, Any]:
+    content_type = _response_content_type(resp)
+    raw = resp.read()
+    text = raw.decode("utf-8-sig")
+    if content_type and "json" not in content_type:
+        hint = "，可能被前端页面兜底" if text.lstrip().startswith("<") else ""
+        raise ValueError(f"更新清单不是 JSON（Content-Type={content_type}{hint}）。")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"更新清单不是合法 JSON：{exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError("更新清单根节点必须是 JSON 对象。")
+    if not str(data.get("version") or "").strip():
+        raise ValueError("更新清单缺少 version 字段。")
+    return data
+
+
+def _response_content_type(resp: Any) -> str:
+    headers = getattr(resp, "headers", None)
+    if headers is not None:
+        if hasattr(headers, "get_content_type"):
+            return str(headers.get_content_type() or "").strip().lower()
+        try:
+            return str(headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+        except AttributeError:
+            pass
+    if hasattr(resp, "getheader"):
+        return str(resp.getheader("Content-Type") or "").split(";", 1)[0].strip().lower()
+    return ""
+
+
 COMMANDS = {
     "get_state": SidecarApp.get_state,
     "save_settings": SidecarApp.save_settings,
@@ -884,6 +1344,9 @@ COMMANDS = {
     "account_update": SidecarApp.account_update,
     "account_delete": SidecarApp.account_delete,
     "import_cookie": SidecarApp.import_cookie,
+    "setup_browser_debug": SidecarApp.setup_browser_debug,
+    "relaunch_browser_for_debug": SidecarApp.relaunch_browser_for_debug,
+    "grab_browser_cookie": SidecarApp.grab_browser_cookie,
     "check_update": SidecarApp.check_update,
     "shutdown": SidecarApp.shutdown,
 }

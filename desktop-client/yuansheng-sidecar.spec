@@ -5,7 +5,7 @@ a = Analysis(
     ['sidecar_cli.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('data\\direct_api_capture.template.json', 'data')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

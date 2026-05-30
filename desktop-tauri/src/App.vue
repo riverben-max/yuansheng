@@ -105,6 +105,7 @@
           :accounts="accounts"
           :activePlatformFilter="activePlatformFilter"
           :platformFilterOptions="platformFilterOptions()"
+          :loginBusy="loginBusy"
           :captureBusy="captureBusy"
           :selectedAccount="selectedAccount"
           @update:activePlatformFilter="activePlatformFilter = $event"
@@ -112,9 +113,11 @@
           @create="openAccountDialog()"
           @edit="openAccountDialog"
           @delete="onDeleteAccount"
-          @capture="captureAccount"
-          @capture-direct="captureAccountDirect"
+          @login="onStartLogin"
+          @capture="onCaptureAccount"
+          @capture-direct="onCaptureAccountDirect"
           @import-cookie="onImportCookie"
+          @grab-browser="onGrabBrowser"
         />
       </el-tab-pane>
     </el-tabs>
@@ -130,6 +133,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { ElMessage } from "element-plus/es/components/message/index.mjs";
 import { ElMessageBox } from "element-plus/es/components/message-box/index.mjs";
 import { runSidecar, subscribeSidecarEvents } from "./lib/sidecar.js";
@@ -158,6 +162,7 @@ import { useAccounts } from "./features/platformAccounts/composables/useAccounts
 const activeTab = ref("capture");
 const logs = ref([]);
 const activePlatformFilter = ref("all");
+const forceUpdateInfo = ref(null);
 
 // ── callSidecar wrapper ──
 async function callSidecar(command, payload = {}, options = {}) {
@@ -175,7 +180,9 @@ async function callSidecar(command, payload = {}, options = {}) {
 
 // ── Composables ──
 const { state, settings, accounts, saving, applyState, refreshState, saveSettings } = useSettings(callSidecar);
-const { runtimeStatus, statusDanger,
+const { loginBusy, runtimeStatus, statusDanger,
+        loginSummaryStatus,
+        startLogin, stopLoginPolling,
         syncRuntimeStatusFromAccounts } = useLoginPolling(callSidecar, refreshState, accounts);
 const { captureBusy, captureAll, captureAccount, captureAccountDirect } = useCapture(callSidecar, refreshState, applyState);
 const { accountDialog, selectedAccount, openAccountDialog, saveAccount, deleteAccount } =
@@ -281,7 +288,10 @@ const businessMetrics = computed(() => {
     .filter((item) => item.value !== "--");
 });
 
-const displayedRuntimeStatus = computed(() => runtimeStatus.value || "待命");
+const displayedRuntimeStatus = computed(() => {
+  if (isNeutralRuntimeStatus(runtimeStatus.value)) return loginSummaryStatus.value;
+  return runtimeStatus.value || "待命";
+});
 
 const displayedStatusType = computed(() => {
   if (statusDanger.value) return "danger";
@@ -296,6 +306,9 @@ const displayedStatusType = computed(() => {
 });
 
 // ── Helpers ──
+function isNeutralRuntimeStatus(status) {
+  return ["待命", "已登录", "已全部登录", "部分已登录", "请先登录", "无启用账号"].includes(String(status || "").trim());
+}
 
 function formatMetricValue(value, suffix = "") {
   if (value === null || value === undefined || value === "") return "--";
@@ -323,11 +336,28 @@ function accountResultTagType(account) {
 
 // ── Event handlers ──
 async function onCaptureAll(platform) {
+  if (!(await ensureUpdateAllowsCapture())) return;
   const result = await captureAll(platform, platformCards);
   if (result?.blocked) {
     activeTab.value = "accounts";
     ElMessage.warning(result.hint);
   }
+}
+
+async function onCaptureAccount(account) {
+  if (!(await ensureUpdateAllowsCapture())) return;
+  const result = await captureAccount(account);
+  if (result?.blocked) ElMessage.warning(result.hint);
+}
+
+async function onCaptureAccountDirect(account) {
+  if (!(await ensureUpdateAllowsCapture())) return;
+  const result = await captureAccountDirect(account);
+  if (result?.blocked) ElMessage.warning(result.hint);
+}
+
+async function onStartLogin(account) {
+  await startLogin(account, activeTab);
 }
 
 async function onDeleteAccount(account) {
@@ -359,7 +389,7 @@ async function onImportCookie(account) {
           cancelButtonText: "稍后",
           type: "success",
         });
-        await captureAccountDirect(account);
+        await onCaptureAccountDirect(account);
       } catch {
         // 用户选择稍后
       }
@@ -369,14 +399,120 @@ async function onImportCookie(account) {
   }
 }
 
+async function onGrabBrowser(account) {
+  if (!account) return;
+  const grabResult = await callSidecar("grab_browser_cookie", {
+    accountId: account.id,
+    platform: account.platform,
+  }, { suppressError: true });
+
+  if (grabResult?.ok && grabResult.data?.cookieSaved) {
+    const identity = grabResult.data?.identity || "";
+    const shop = grabResult.data?.shopName || "";
+    const label = identity ? `${identity}${shop ? "（" + shop + "）" : ""}` : "Cookie 已保存";
+    ElMessage.success(`登录信息导入成功：${label}`);
+    if (grabResult.data?.state) applyState(grabResult.data.state);
+    try {
+      await ElMessageBox.confirm("登录信息已保存，是否立即采集？", "立即采集", {
+        confirmButtonText: "立即采集",
+        cancelButtonText: "稍后",
+        type: "success",
+      });
+      await onCaptureAccountDirect(account);
+    } catch {
+      // 用户选择稍后
+    }
+    return;
+  }
+
+  if (grabResult?.ok && grabResult.data?.needsSetup) {
+    // 软件接管浏览器启动：杀掉所有 360 → 自己 spawn 一个带调试端口 + 打开抖店登录页
+    try {
+      await ElMessageBox.confirm(
+        "需要重新启动 360 浏览器才能读取登录信息。\n注意：你当前打开的所有浏览器标签页会被关闭。\n\n是否继续？",
+        "重启浏览器",
+        {
+          confirmButtonText: "重启浏览器",
+          cancelButtonText: "取消",
+          type: "warning",
+        },
+      );
+    } catch { return; }
+
+    const relaunchResult = await callSidecar("relaunch_browser_for_debug", {});
+    if (!relaunchResult?.ok) {
+      ElMessage.error(relaunchResult?.message || "重启浏览器失败，请手动关闭 360 后再试。");
+      return;
+    }
+    if (relaunchResult.data?.portReady) {
+      await ElMessageBox.alert(
+        "浏览器已为你重新打开，已自动跳转到抖店登录页。\n\n请在浏览器里登录抖店后台，登录完成后再点一次「浏览器」按钮即可。",
+        "登录抖店",
+        { confirmButtonText: "我知道了", type: "success" },
+      );
+    } else {
+      ElMessage.warning("浏览器已启动但调试端口未就绪，请稍等几秒后再点「浏览器」按钮。");
+    }
+    return;
+  }
+
+  // 其他失败场景：把 sidecar 返回的技术消息转成客户能看懂的指引
+  const status = grabResult?.data?.browserStatus || "";
+  let friendlyMsg = grabResult?.data?.message || grabResult?.message || "导入失败，请稍后重试";
+  if (status === "not_running") {
+    friendlyMsg = "请先打开 360 极速浏览器，并登录抖店后台，再点「浏览器」按钮。";
+  } else if (status === "running_no_debug") {
+    friendlyMsg = "请关闭 360 极速浏览器，再用桌面图标重新打开，登录抖店后台后再点「浏览器」按钮。";
+  } else if (status === "running_with_debug") {
+    // 端口就绪但没读到 cookie - 通常是没登录抖店
+    friendlyMsg = "未读取到登录信息，请先在浏览器里登录抖店后台 (fxg.jinritemai.com) 再点「浏览器」按钮。";
+  } else if (status === "port_occupied_other") {
+    friendlyMsg = "浏览器准备未完成，请关闭所有浏览器窗口后重新打开。";
+  } else if (status === "connection_failed" || status === "read_failed") {
+    friendlyMsg = "连接浏览器失败，请关闭浏览器后用桌面图标重新打开。";
+  }
+  ElMessage.error(friendlyMsg);
+}
+
 // ── checkUpdate ──
 async function checkUpdate() {
   const result = await callSidecar("check_update", {}, { suppressError: true });
   if (result?.ok && result.data?.updateAvailable) {
-    ElMessage.success(
-      `发现新版本 ${result.data.latestVersion}，当前版本 ${result.data.currentVersion}，请到发布渠道下载安装。`,
-    );
+    await showUpdatePrompt(result.data);
   }
+}
+
+async function showUpdatePrompt(updateInfo) {
+  if (updateInfo?.force) forceUpdateInfo.value = updateInfo;
+  const notes = updateInfo?.notes ? `\n\n更新说明：${updateInfo.notes}` : "";
+  const message = `发现新版本 ${updateInfo.latestVersion}，当前版本 ${updateInfo.currentVersion}。${notes}\n\n下载后请手动运行安装包覆盖安装。`;
+  try {
+    await ElMessageBox.confirm(message, updateInfo.force ? "需要更新" : "发现新版本", {
+      confirmButtonText: "下载更新",
+      cancelButtonText: updateInfo.force ? "稍后更新" : "稍后",
+      type: updateInfo.force ? "warning" : "info",
+      closeOnClickModal: !updateInfo.force,
+      closeOnPressEscape: !updateInfo.force,
+    });
+    await openUpdateDownload(updateInfo);
+  } catch {
+    if (updateInfo.force) ElMessage.warning("当前版本需要更新后才能继续采集。");
+  }
+}
+
+async function openUpdateDownload(updateInfo) {
+  const downloadUrl = updateInfo?.downloadUrl || "";
+  if (!downloadUrl) {
+    ElMessage.warning("更新包下载地址为空，请联系管理员。");
+    return;
+  }
+  await openUrl(downloadUrl);
+}
+
+async function ensureUpdateAllowsCapture() {
+  if (!forceUpdateInfo.value) return true;
+  await showUpdatePrompt(forceUpdateInfo.value);
+  return false;
 }
 
 // ── Tauri lifecycle ──
@@ -390,6 +526,7 @@ onMounted(async () => {
   await refreshState();
   checkUpdate();
   scheduleTimer = setInterval(() => {
+    if (forceUpdateInfo.value) return;
     if (!settings.scheduleEnabled || !settings.scheduleTime) return;
     const now = new Date();
     const [h, m] = settings.scheduleTime.split(":").map(Number);
@@ -406,6 +543,7 @@ onUnmounted(() => {
   if (unlistenSidecar) unlistenSidecar();
   if (unlistenTrayQuit) unlistenTrayQuit();
   if (scheduleTimer) clearInterval(scheduleTimer);
+  stopLoginPolling();
 });
 
 async function handleTrayQuit() {
@@ -439,4 +577,3 @@ function handleSidecarEvent(event) {
   }
 }
 </script>
-

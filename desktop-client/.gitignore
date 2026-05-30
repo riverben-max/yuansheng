@@ -2,9 +2,20 @@ __pycache__/
 build/
 dist/
 data/
+!data/
+data/*
+!data/direct_api_capture.template.json
 .venv/
 python
 shop_mapping.json
 *.pyc
 *.pyo
 *.spec.bak
+
+# 凭据预置（DPAPI 加密产物，绑定本机用户，不入库）
+auth_config_preset.json
+
+# 本地会话日志/调试草稿
+*-local-command-*.txt
+_debug_shortcut.py
+
