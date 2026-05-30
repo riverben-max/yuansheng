@@ -1,6 +1,6 @@
 [package]
 name = "yuansheng-data-assistant"
-version = "1.1.6"
+version = "1.1.7"
 description = "远盛数据助手 Tauri desktop shell"
 authors = ["Yuansheng"]
 edition = "2021"

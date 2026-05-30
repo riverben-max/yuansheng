@@ -150,7 +150,7 @@ function usesCookieImportLogin(account) {
 }
 
 function supportsBrowserGrab(account) {
-  return ["douyin"].includes(String(account?.platform || "").trim().toLowerCase());
+  return ["qn", "jd", "pdd", "douyin"].includes(String(account?.platform || "").trim().toLowerCase());
 }
 
 function accountCookieStatus(account) {

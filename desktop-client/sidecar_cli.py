@@ -59,7 +59,7 @@ from startup_manager import ensure_autostart, is_autostart_enabled
 from upload_client import UploadClientError, upload_employee_payload, ensure_default_auth_config
 
 APP_NAME = "远盛数据助手"
-SIDECAR_VERSION = "1.1.6"
+SIDECAR_VERSION = "1.1.7"
 DEFAULT_SERVER_URL = "http://120.27.22.50"
 DEFAULT_UPDATE_CHECK_URL = "http://120.27.22.50/desktop/update.json"
 DIRECT_API_TEMPLATE_NAME = "direct_api_capture.template.json"
@@ -955,10 +955,14 @@ class SidecarApp:
         })
 
     def relaunch_browser_for_debug(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
-        """关闭客户当前的所有 360 浏览器进程，用调试端口模式重新启动并打开抖店登录页。
+        """关闭客户当前的所有 360 浏览器进程，用调试端口模式重新启动并打开对应平台的登录页。
 
         客户用现有的 360（同一个 exe、同一个 profile、同一个登录态），只是启动方式由软件接管，
         不依赖客户的快捷方式（解决"客户机器没有 360 桌面快捷方式"或"客户从非标方式启动"的场景）。
+
+        Payload:
+            startupUrl: 启动后跳转的登录页 URL（默认抖店）。
+            platformLabel: 平台显示文案（"千牛"/"京东"/"拼多多"/"抖店"），仅用于日志和提示。
         """
         import subprocess
         import time as _time
@@ -971,6 +975,7 @@ class SidecarApp:
 
         port = int(payload.get("port") or BROWSER_DEBUG_PORT)
         startup_url = str(payload.get("startupUrl") or "https://fxg.jinritemai.com").strip() or "https://fxg.jinritemai.com"
+        platform_label = str(payload.get("platformLabel") or "").strip() or "对应平台"
 
         # 1. 拿到 360 exe 路径：先看运行中的进程，再走标准探测
         exe = _get_running_360_exe() or _resolve_browser_exe()
@@ -1018,7 +1023,7 @@ class SidecarApp:
                 break
             _time.sleep(0.2)
 
-        self.log(f"浏览器已用调试模式重新启动（端口 {port}）。请在弹出的浏览器里登录抖店后台后，再点一次「浏览器」按钮。")
+        self.log(f"浏览器已用调试模式重新启动（端口 {port}）。请在弹出的浏览器里登录{platform_label}后台后，再点一次「浏览器」按钮。")
         return self.response({
             "launched": True,
             "exePath": exe,

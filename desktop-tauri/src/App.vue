@@ -401,6 +401,15 @@ async function onImportCookie(account) {
 
 async function onGrabBrowser(account) {
   if (!account) return;
+  // 各平台登录后台 URL 与显示文案
+  const PLATFORM_BROWSER_CONFIG = {
+    qn: { url: "https://loginmyseller.taobao.com/", label: "千牛", domainHint: "myseller.taobao.com" },
+    jd: { url: "https://passport.jd.com/new/login.aspx?ReturnUrl=http%3A%2F%2Fkf.jd.com%2F", label: "京东", domainHint: "kf.jd.com" },
+    pdd: { url: "https://mms.pinduoduo.com/login/?redirectUrl=https%3A%2F%2Fmms.pinduoduo.com%2Fmms-chat%2Foverview%2Fmerchant", label: "拼多多", domainHint: "mms.pinduoduo.com" },
+    douyin: { url: "https://fxg.jinritemai.com", label: "抖店", domainHint: "fxg.jinritemai.com" },
+  };
+  const cfg = PLATFORM_BROWSER_CONFIG[String(account.platform || "").toLowerCase()] || PLATFORM_BROWSER_CONFIG.douyin;
+
   const grabResult = await callSidecar("grab_browser_cookie", {
     accountId: account.id,
     platform: account.platform,
@@ -426,7 +435,7 @@ async function onGrabBrowser(account) {
   }
 
   if (grabResult?.ok && grabResult.data?.needsSetup) {
-    // 软件接管浏览器启动：杀掉所有 360 → 自己 spawn 一个带调试端口 + 打开抖店登录页
+    // 软件接管浏览器启动：杀掉所有 360 → 自己 spawn 一个带调试端口 + 打开对应平台登录页
     try {
       await ElMessageBox.confirm(
         "需要重新启动 360 浏览器才能读取登录信息。\n注意：你当前打开的所有浏览器标签页会被关闭。\n\n是否继续？",
@@ -439,15 +448,18 @@ async function onGrabBrowser(account) {
       );
     } catch { return; }
 
-    const relaunchResult = await callSidecar("relaunch_browser_for_debug", {});
+    const relaunchResult = await callSidecar("relaunch_browser_for_debug", {
+      startupUrl: cfg.url,
+      platformLabel: cfg.label,
+    });
     if (!relaunchResult?.ok) {
       ElMessage.error(relaunchResult?.message || "重启浏览器失败，请手动关闭 360 后再试。");
       return;
     }
     if (relaunchResult.data?.portReady) {
       await ElMessageBox.alert(
-        "浏览器已为你重新打开，已自动跳转到抖店登录页。\n\n请在浏览器里登录抖店后台，登录完成后再点一次「浏览器」按钮即可。",
-        "登录抖店",
+        `浏览器已为你重新打开，已自动跳转到${cfg.label}登录页。\n\n请在浏览器里登录${cfg.label}后台，登录完成后再点一次「浏览器」按钮即可。`,
+        `登录${cfg.label}`,
         { confirmButtonText: "我知道了", type: "success" },
       );
     } else {
@@ -460,12 +472,12 @@ async function onGrabBrowser(account) {
   const status = grabResult?.data?.browserStatus || "";
   let friendlyMsg = grabResult?.data?.message || grabResult?.message || "导入失败，请稍后重试";
   if (status === "not_running") {
-    friendlyMsg = "请先打开 360 极速浏览器，并登录抖店后台，再点「浏览器」按钮。";
+    friendlyMsg = `请先打开 360 极速浏览器，并登录${cfg.label}后台，再点「浏览器」按钮。`;
   } else if (status === "running_no_debug") {
-    friendlyMsg = "请关闭 360 极速浏览器，再用桌面图标重新打开，登录抖店后台后再点「浏览器」按钮。";
+    friendlyMsg = `请关闭 360 极速浏览器，再用桌面图标重新打开，登录${cfg.label}后台后再点「浏览器」按钮。`;
   } else if (status === "running_with_debug") {
-    // 端口就绪但没读到 cookie - 通常是没登录抖店
-    friendlyMsg = "未读取到登录信息，请先在浏览器里登录抖店后台 (fxg.jinritemai.com) 再点「浏览器」按钮。";
+    // 端口就绪但没读到 cookie - 通常是没登录对应平台
+    friendlyMsg = `未读取到登录信息，请先在浏览器里登录${cfg.label}后台 (${cfg.domainHint}) 再点「浏览器」按钮。`;
   } else if (status === "port_occupied_other") {
     friendlyMsg = "浏览器准备未完成，请关闭所有浏览器窗口后重新打开。";
   } else if (status === "connection_failed" || status === "read_failed") {
