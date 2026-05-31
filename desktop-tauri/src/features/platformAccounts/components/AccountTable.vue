@@ -60,7 +60,7 @@
       <el-table-column label="操作" width="140" fixed="right">
         <template #default="{ row }">
           <div class="row-actions">
-            <el-button v-if="supportsBrowserGrab(row)" size="small" type="primary" plain @click="$emit('grab-browser', row)">浏览器</el-button>
+            <el-button v-if="supportsBrowserGrab(row)" size="small" type="primary" plain :disabled="grabBusy" @click="$emit('grab-browser', row)">浏览器</el-button>
             <el-button size="small" type="success" plain :disabled="captureBusy || row.enabled === false" @click="$emit('capture', row)">采集</el-button>
           </div>
         </template>
@@ -87,6 +87,7 @@ const props = defineProps({
   platformFilterOptions: { type: Array, required: true },
   loginBusy: { type: Boolean, default: false },
   captureBusy: { type: Boolean, default: false },
+  grabBusy: { type: Boolean, default: false },
   selectedAccount: { type: Object, default: null },
 });
 

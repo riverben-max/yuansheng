@@ -42,7 +42,7 @@
       }
     },
     "resources": [
-      "binaries/yuansheng-sidecar.exe"
+      "binaries/yuansheng-sidecar/"
     ]
   }
 }

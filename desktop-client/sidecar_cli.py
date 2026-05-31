@@ -1639,6 +1639,43 @@ def _parse_cookie_import(raw_text: str) -> tuple[str, str]:
     return cookie_header, csrf_token
 
 
+def _cleanup_stale_meipass_dirs() -> None:
+    """清理本 sidecar（PyInstaller onefile）被强杀后残留的 _MEIxxxx 临时目录。
+
+    仅清理同时满足以下条件的目录，避免误删其它程序或正在运行的 sidecar：
+    - 名字以 _MEI 开头且位于系统临时目录；
+    - 不是当前进程正在使用的 _MEIPASS；
+    - 目录内含本程序特有的 data/<模板> 标记文件（确保属于本程序）；
+    - mtime 在 24 小时前（早已不可能属于活动进程）。
+    """
+    if not hasattr(sys, "_MEIPASS"):
+        return
+    try:
+        import shutil
+        import tempfile
+        import time as _time
+
+        current = os.path.realpath(str(getattr(sys, "_MEIPASS", "")))
+        temp_root = tempfile.gettempdir()
+        cutoff = _time.time() - 24 * 3600
+        marker = os.path.join("data", DIRECT_API_TEMPLATE_NAME)
+        for name in os.listdir(temp_root):
+            if not name.startswith("_MEI"):
+                continue
+            path = os.path.join(temp_root, name)
+            if not os.path.isdir(path) or os.path.realpath(path) == current:
+                continue
+            if not os.path.exists(os.path.join(path, marker)):
+                continue
+            try:
+                if os.path.getmtime(path) < cutoff:
+                    shutil.rmtree(path, ignore_errors=True)
+            except OSError:
+                continue
+    except Exception:
+        pass
+
+
 def parse_payload(text: str | None) -> Dict[str, Any]:
     if not text:
         return {}
@@ -1655,6 +1692,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-dir", default="")
     args = parser.parse_args(argv)
 
+    _cleanup_stale_meipass_dirs()
     app = SidecarApp(data_dir=Path(args.data_dir) if args.data_dir else None)
     try:
         payload = parse_payload(args.payload)

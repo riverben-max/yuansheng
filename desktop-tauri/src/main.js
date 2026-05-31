@@ -63,4 +63,13 @@ const app = createApp(App);
   app.component(component.name, component);
 });
 
+app.config.errorHandler = (err, _instance, info) => {
+  console.error("[vue error]", info, err);
+};
+if (typeof window !== "undefined") {
+  window.addEventListener("unhandledrejection", (event) => {
+    console.error("[unhandledrejection]", event.reason);
+  });
+}
+
 app.mount("#app");

@@ -19,6 +19,7 @@ const DEFAULT_SIDECAR_TIMEOUT_SECS: u64 = 60;
 const POLL_LOGIN_TIMEOUT_SECS: u64 = 20;
 const START_LOGIN_TIMEOUT_SECS: u64 = 45;
 const CAPTURE_TIMEOUT_SECS: u64 = 300;
+const CAPTURE_ALL_TIMEOUT_SECS: u64 = 1800;
 
 #[tauri::command]
 async fn sidecar_command(app: AppHandle, command: String, payload: Option<Value>) -> Result<Value, String> {
@@ -150,6 +151,7 @@ fn sidecar_timeout_secs(command: &str) -> u64 {
         "setup_browser_debug" => 30,
         "relaunch_browser_for_debug" => 30,
         "grab_browser_cookie" => 60,
+        "capture_all" => CAPTURE_ALL_TIMEOUT_SECS,
         value if value.starts_with("capture_") => CAPTURE_TIMEOUT_SECS,
         _ => DEFAULT_SIDECAR_TIMEOUT_SECS,
     }
@@ -295,11 +297,11 @@ fn build_sidecar_process(
         }
     }
 
-    // 3. Bundled sidecar next to the Tauri executable.
+    // 3. Bundled sidecar (onedir) next to the Tauri executable.
     if let Ok(exe_dir) = app
         .path()
         .resource_dir()
-        .map(|p| p.join("binaries").join("yuansheng-sidecar.exe"))
+        .map(|p| p.join("binaries").join("yuansheng-sidecar").join("yuansheng-sidecar.exe"))
     {
         if exe_dir.exists() {
             return spawn_sidecar(Command::new(exe_dir), command, payload_text);
@@ -327,6 +329,10 @@ fn spawn_sidecar(
 ) -> Result<std::process::Child, String> {
     command_builder.env("PYTHONUTF8", "1");
     command_builder.env("PYTHONIOENCODING", "utf-8");
+    // 让 sidecar 注册开机自启时能拿到 Tauri 主程序路径（H3）。
+    if let Ok(main_exe) = env::current_exe() {
+        command_builder.env("YUANSHENG_MAIN_EXE", main_exe);
+    }
     #[cfg(windows)]
     command_builder.creation_flags(CREATE_NO_WINDOW);
     command_builder

@@ -9,7 +9,7 @@ import psutil
 
 BROWSER_DEBUG_PORT = 9527
 
-BROWSER_EXE_NAMES = {"360chromex.exe", "chrome.exe", "360chrome.exe"}
+BROWSER_EXE_NAMES = {"360chromex.exe", "360chrome.exe"}
 
 PLATFORM_COOKIE_DOMAINS: Dict[str, List[str]] = {
     "douyin": ["jinritemai.com", ".douyin.com", ".toutiao.com"],
@@ -110,29 +110,37 @@ def _create_shortcut(lnk_path: str, target: str, arguments: str, working_dir: st
 
 
 def _resolve_browser_exe() -> str:
+    # 本流程统一只用 360 极速浏览器，不回退到谷歌 Chrome。
     # 1. 优先使用正在运行的 360 进程的实际 exe 路径（客户可能装到非标准位置）
     running_360 = _get_running_360_exe()
     if running_360:
         return running_360
-    # 2. 通过 shadow_browser 模块查 Chrome 路径
-    try:
-        from shadow_browser import resolve_chrome_path
-        path = resolve_chrome_path()
-        if path and Path(path).exists():
-            return path
-    except Exception:
-        pass
-    # 3. 候选标准位置兜底
-    candidates = [
+    # 2. 360 标准安装位置
+    candidates_360 = [
         os.path.expandvars(r"%LOCALAPPDATA%\360ChromeX\Chrome\Application\360ChromeX.exe"),
         os.path.expandvars(r"%PROGRAMFILES%\360\360ChromeX\Chrome\Application\360ChromeX.exe"),
         os.path.expandvars(r"%PROGRAMFILES(X86)%\360\360ChromeX\Chrome\Application\360ChromeX.exe"),
-        os.path.expandvars(r"%PROGRAMFILES%\Google\Chrome\Application\chrome.exe"),
-        os.path.expandvars(r"%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe"),
     ]
-    for candidate in candidates:
+    for candidate in candidates_360:
         if candidate and Path(candidate).exists():
             return candidate
+    # 3. 桌面/开始菜单/任务栏的 360 快捷方式目标（覆盖非标准安装，之前就是靠这个自动打开桌面浏览器）
+    try:
+        for sc in find_browser_shortcuts():
+            target = str(sc.get("target") or "")
+            if sc.get("is_360") and target and Path(target).exists():
+                return target
+    except Exception:
+        pass
+    # 4. 注册表解析兜底，但只接受 360（拒绝谷歌 Chrome），覆盖非标准安装
+    try:
+        from shadow_browser import resolve_chrome_path
+        path = resolve_chrome_path()
+        if path and _is_360_target(path) and Path(path).exists():
+            return path
+    except Exception:
+        pass
+    # 找不到 360：返回空，由上层提示"请先打开/安装 360"，不退回 Chrome
     return ""
 
 

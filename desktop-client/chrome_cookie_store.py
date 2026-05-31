@@ -79,22 +79,24 @@ def inject_cookies_to_profile(profile_dir: Path, cookie_header: str, domain: str
     expires = now + _DEFAULT_EXPIRE_DAYS * 24 * 3600 * 1_000_000
 
     conn = sqlite3.connect(str(db_path))
-    c = conn.cursor()
-    c.execute(_CREATE_TABLE_SQL)
-    c.execute("DELETE FROM cookies WHERE host_key = ?", (domain,))
-    for name, value in cookies:
-        c.execute(
-            "INSERT INTO cookies (creation_utc, host_key, top_frame_site_key, name, value, encrypted_value, path, expires_utc, is_secure, is_httponly, last_access_utc, has_expires, is_persistent, priority, samesite, source_scheme, source_port, last_update_utc, source_type, has_cross_site_ancestor) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (now, domain, "", name, value, b"", "/", expires, 1, 0, now, 1, 1, 1, -1, 2, 443, now, 0, 0),
-        )
-    conn.commit()
-    conn.close()
+    try:
+        c = conn.cursor()
+        c.execute(_CREATE_TABLE_SQL)
+        c.execute("DELETE FROM cookies WHERE host_key = ?", (domain,))
+        for name, value in cookies:
+            c.execute(
+                "INSERT INTO cookies (creation_utc, host_key, top_frame_site_key, name, value, encrypted_value, path, expires_utc, is_secure, is_httponly, last_access_utc, has_expires, is_persistent, priority, samesite, source_scheme, source_port, last_update_utc, source_type, has_cross_site_ancestor) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (now, domain, "", name, value, b"", "/", expires, 1, 0, now, 1, 1, 1, -1, 2, 443, now, 0, 0),
+            )
+        conn.commit()
+    finally:
+        conn.close()
     return len(cookies)
 
 
 def read_cookies_from_profile(profile_dir: Path, domain_filter: str = ".taobao.com") -> str:
     """从 Chrome profile 的 Cookies 数据库读取指定域名的 Cookie，返回 header 字符串。"""
-    import os, tempfile, time
+    import os, shutil, tempfile, time
 
     db_path = _cookies_db_path(profile_dir)
     if not db_path.exists():
@@ -103,23 +105,30 @@ def read_cookies_from_profile(profile_dir: Path, domain_filter: str = ".taobao.c
     # 等待浏览器进程完全释放文件
     time.sleep(2)
 
-    # 复制数据库文件避免锁冲突
-    tmp = os.path.join(tempfile.gettempdir(), "ys_cookie_read.db")
-    os.system(f'cmd /c copy /Y "{db_path}" "{tmp}" >nul 2>&1')
-    if not os.path.exists(tmp) or os.path.getsize(tmp) < 100:
-        return ""
-
+    # 复制数据库文件避免锁冲突；用唯一临时名，避免并发采集相互覆盖
+    fd, tmp = tempfile.mkstemp(prefix="ys_cookie_read_", suffix=".db")
+    os.close(fd)
+    rows = []
     try:
-        conn = sqlite3.connect(tmp)
-        c = conn.cursor()
-        c.execute(
-            "SELECT name, value FROM cookies WHERE host_key = ? AND value != '' ORDER BY creation_utc",
-            (domain_filter,),
-        )
-        rows = c.fetchall()
-        conn.close()
-    except sqlite3.OperationalError:
-        rows = []
+        try:
+            shutil.copy2(str(db_path), tmp)
+        except OSError:
+            return ""
+        if os.path.getsize(tmp) < 100:
+            return ""
+        try:
+            conn = sqlite3.connect(tmp)
+            try:
+                c = conn.cursor()
+                c.execute(
+                    "SELECT name, value FROM cookies WHERE host_key = ? AND value != '' ORDER BY creation_utc",
+                    (domain_filter,),
+                )
+                rows = c.fetchall()
+            finally:
+                conn.close()
+        except sqlite3.OperationalError:
+            rows = []
     finally:
         try:
             os.unlink(tmp)

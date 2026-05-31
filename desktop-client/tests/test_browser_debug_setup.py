@@ -107,7 +107,7 @@ class TestFindBrowserShortcuts(unittest.TestCase):
         mock_dirs.return_value = [tmp]
         mock_read.return_value = {
             "path": str(lnk_file),
-            "target": r"C:\chrome.exe",
+            "target": r"C:\360ChromeX.exe",
             "arguments": "--remote-debugging-port=9527",
             "working_dir": "",
         }

@@ -37,6 +37,18 @@ export function useCapture(callSidecar, refreshState, applyState) {
     return { blocked: false };
   }
 
+  // 定时采集：复用 captureBusy 守卫，避免与手动采集并发抢锁/重复上传
+  async function captureAllScheduled(reason = "定时采集") {
+    if (captureBusy.value) return { blocked: true };
+    captureBusy.value = true;
+    try {
+      await runCapture("capture_all", { reason });
+    } finally {
+      captureBusy.value = false;
+    }
+    return { blocked: false };
+  }
+
   async function captureAccount(account) {
     if (captureBusy.value) return { blocked: true, hint: "采集进行中，请稍后再试" };
     if (account?.enabled === false) return { blocked: true, hint: "账号已禁用，不能采集" };
@@ -61,5 +73,5 @@ export function useCapture(callSidecar, refreshState, applyState) {
     return { blocked: false };
   }
 
-  return { captureBusy, captureAll, captureAccount, captureAccountDirect, runCapture };
+  return { captureBusy, captureAll, captureAllScheduled, captureAccount, captureAccountDirect, runCapture };
 }

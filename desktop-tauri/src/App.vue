@@ -107,6 +107,7 @@
           :platformFilterOptions="platformFilterOptions()"
           :loginBusy="loginBusy"
           :captureBusy="captureBusy"
+          :grabBusy="grabBusy"
           :selectedAccount="selectedAccount"
           @update:activePlatformFilter="activePlatformFilter = $event"
           @update:selectedAccount="selectedAccount = $event"
@@ -158,6 +159,7 @@ const activeTab = ref("capture");
 const logs = ref([]);
 const activePlatformFilter = ref("all");
 const forceUpdateInfo = ref(null);
+const grabBusy = ref(false);
 
 // ── callSidecar wrapper ──
 async function callSidecar(command, payload = {}, options = {}) {
@@ -179,7 +181,7 @@ const { loginBusy, runtimeStatus, statusDanger,
         loginSummaryStatus,
         stopLoginPolling,
         syncRuntimeStatusFromAccounts } = useLoginPolling(callSidecar, refreshState, accounts);
-const { captureBusy, captureAll, captureAccount, captureAccountDirect } = useCapture(callSidecar, refreshState, applyState);
+const { captureBusy, captureAll, captureAllScheduled, captureAccount, captureAccountDirect } = useCapture(callSidecar, refreshState, applyState);
 const { accountDialog, selectedAccount, openAccountDialog, saveAccount } =
   useAccounts(callSidecar, refreshState, activePlatformFilter);
 
@@ -353,6 +355,9 @@ async function onCaptureAccountDirect(account) {
 
 async function onGrabBrowser(account) {
   if (!account) return;
+  if (grabBusy.value) return;
+  grabBusy.value = true;
+  try {
   // 各平台登录后台 URL 与显示文案
   const PLATFORM_BROWSER_CONFIG = {
     qn: { url: "https://loginmyseller.taobao.com/", label: "千牛", domainHint: "myseller.taobao.com" },
@@ -445,6 +450,9 @@ async function onGrabBrowser(account) {
     friendlyMsg = "连接浏览器失败，请关闭浏览器后用桌面图标重新打开。";
   }
   ElMessage.error(friendlyMsg);
+  } finally {
+    grabBusy.value = false;
+  }
 }
 
 // ── checkUpdate ──
@@ -508,7 +516,7 @@ onMounted(async () => {
     const todayStr = now.toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\//g, "-");
     const lastRunDate = (state.lastRunAt || "").slice(0, 10);
     if (lastRunDate === todayStr) return;
-    callSidecar("capture_all", { reason: "定时采集" });
+    captureAllScheduled("定时采集");
   }, 60_000);
 });
 

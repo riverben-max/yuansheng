@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import sys
 import winreg
@@ -50,7 +51,10 @@ def build_startup_command(
     runtime_executable = str(executable or sys.executable)
     is_frozen = getattr(sys, "frozen", False) if frozen is None else frozen
     if is_frozen:
-        return f'"{runtime_executable}"'
+        # 打包后 sys.executable 指向 sidecar.exe；开机自启必须拉起 Tauri 主程序，
+        # 主程序路径由 Rust 侧通过 YUANSHENG_MAIN_EXE 环境变量传入。
+        main_exe = (os.environ.get("YUANSHENG_MAIN_EXE") or "").strip()
+        return f'"{main_exe or runtime_executable}"'
 
     root_dir = Path(base_dir) if base_dir is not None else Path(__file__).resolve().parent
     entry_script = script_path or str(root_dir / "main.py")

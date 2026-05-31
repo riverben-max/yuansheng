@@ -41,8 +41,8 @@ if (($versions | Select-Object -Unique).Count -ne 1) {
 }
 
 $resources = @($tauriConfig.bundle.resources)
-if ($resources -notcontains "binaries/yuansheng-sidecar.exe") {
-  throw "tauri.conf.json must preserve binaries/yuansheng-sidecar.exe as a resource path."
+if ($resources -notcontains "binaries/yuansheng-sidecar/") {
+  throw "tauri.conf.json must bundle binaries/yuansheng-sidecar/ (onedir) as a resource path."
 }
 
 if (-not (Test-Path -LiteralPath $templatePath)) {
