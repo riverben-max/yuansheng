@@ -59,7 +59,7 @@ from startup_manager import ensure_autostart, is_autostart_enabled
 from upload_client import UploadClientError, upload_employee_payload, ensure_default_auth_config
 
 APP_NAME = "远盛数据助手"
-SIDECAR_VERSION = "1.1.8"
+SIDECAR_VERSION = "1.1.9"
 DEFAULT_SERVER_URL = "http://120.27.22.50"
 DEFAULT_UPDATE_CHECK_URL = "http://120.27.22.50/desktop/update.json"
 DIRECT_API_TEMPLATE_NAME = "direct_api_capture.template.json"
@@ -1098,6 +1098,64 @@ class SidecarApp:
                 "needsSetup": False,
             })
 
+        # 千牛特殊处理：cookie 必须含 _m_h5_tk + 用户标识（sn/unb/_tb_token_/tracknick 任一）
+        # 才能用于采集。如果不完整，先自动跳 myseller 工作台等 5 秒重抓；仍不完整则返回失败，
+        # 引导客户在浏览器里完成登录后再点「浏览器」按钮。
+        if platform == "qn":
+            def _qn_cookie_complete(c: str) -> bool:
+                if not c:
+                    return False
+                if "_m_h5_tk=" not in c:
+                    return False
+                # 用户标识至少有一个（_tb_token_ 是 CSRF token 不算用户身份，淘宝接口需要 unb/sn 等）
+                return any(("; " + m) in (";" + c) for m in ("sn=", "unb=", "tracknick=", "_nk_="))
+
+            def _log_qn_cookie_fields(c: str, tag: str) -> None:
+                keys = [p.split("=")[0].strip() for p in (c or "").split(";") if "=" in p]
+                key_set = set(keys)
+                key_markers = {
+                    "_m_h5_tk": "_m_h5_tk" in key_set,
+                    "sn": "sn" in key_set,
+                    "unb": "unb" in key_set,
+                    "_tb_token_": "_tb_token_" in key_set,
+                    "tracknick": "tracknick" in key_set,
+                    "_nk_": "_nk_" in key_set,
+                    "lgc": "lgc" in key_set,
+                    "cookie2": "cookie2" in key_set,
+                }
+                marker_text = ", ".join(f"{k}={'有' if v else '无'}" for k, v in key_markers.items())
+                self.log(f"[千牛 cookie 诊断 {tag}] 长度 {len(c or '')}，字段数 {len(keys)}，关键字段：{marker_text}")
+
+            _log_qn_cookie_fields(cookie_header, "首次抓取")
+
+            if not _qn_cookie_complete(cookie_header):
+                try:
+                    from browser_debug_setup import open_url_in_existing_browser
+                    self.log("千牛 cookie 不完整，自动跳转 myseller 工作台等待登录态颁发…")
+                    open_url_in_existing_browser(port, "https://myseller.taobao.com/home.htm/QnworkbenchHome/")
+                    import time as _time
+                    _time.sleep(5)
+                    cookie_header = grab_cookies_via_cdp(port, target_domains)
+                    _log_qn_cookie_fields(cookie_header, "重抓后")
+                except Exception as exc:
+                    self.log(f"千牛 cookie 自动补齐失败：{exc}")
+
+            if not _qn_cookie_complete(cookie_header):
+                # 仍不完整 → 引导客户继续登录
+                try:
+                    from browser_debug_setup import open_url_in_existing_browser
+                    open_url_in_existing_browser(port, "https://myseller.taobao.com/home.htm/QnworkbenchHome/")
+                except Exception:
+                    pass
+                return self.response({
+                    "cookieSaved": False,
+                    "message": "千牛登录信息不完整。已为你打开工作台首页，请在浏览器里完成登录后，再点「浏览器」按钮。",
+                    "browserStatus": "running_with_debug",
+                    "needsSetup": False,
+                    "loginPageOpened": True,
+                    "platformLabel": "千牛",
+                })
+
         if not cookie_header:
             # 浏览器在调试模式但没读到目标平台 cookie：自动新开标签页跳到登录页，引导客户登录
             from browser_debug_setup import PLATFORM_LOGIN_URLS, open_url_in_existing_browser
@@ -1668,4 +1726,5 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
 

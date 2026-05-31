@@ -111,6 +111,7 @@
           @update:activePlatformFilter="activePlatformFilter = $event"
           @update:selectedAccount="selectedAccount = $event"
           @create="openAccountDialog()"
+          @delete="onDeleteAccount"
           @capture="onCaptureAccount"
           @grab-browser="onGrabBrowser"
         />
@@ -180,7 +181,7 @@ const { loginBusy, runtimeStatus, statusDanger,
         stopLoginPolling,
         syncRuntimeStatusFromAccounts } = useLoginPolling(callSidecar, refreshState, accounts);
 const { captureBusy, captureAll, captureAccount, captureAccountDirect } = useCapture(callSidecar, refreshState, applyState);
-const { accountDialog, selectedAccount, openAccountDialog, saveAccount } =
+const { accountDialog, selectedAccount, openAccountDialog, saveAccount, deleteAccount } =
   useAccounts(callSidecar, refreshState, activePlatformFilter);
 
 // ── Computed ──
@@ -351,11 +352,17 @@ async function onCaptureAccountDirect(account) {
   if (result?.blocked) ElMessage.warning(result.hint);
 }
 
+async function onDeleteAccount(account) {
+  if (!account) return;
+  await deleteAccount(account);
+  selectedAccount.value = null;
+}
+
 async function onGrabBrowser(account) {
   if (!account) return;
   // 各平台登录后台 URL 与显示文案
   const PLATFORM_BROWSER_CONFIG = {
-    qn: { url: "https://loginmyseller.taobao.com/", label: "千牛", domainHint: "myseller.taobao.com" },
+    qn: { url: "https://myseller.taobao.com/home.htm/QnworkbenchHome/", label: "千牛", domainHint: "myseller.taobao.com" },
     jd: { url: "https://passport.jd.com/new/login.aspx?ReturnUrl=http%3A%2F%2Fkf.jd.com%2F", label: "京东", domainHint: "kf.jd.com" },
     pdd: { url: "https://mms.pinduoduo.com/login/?redirectUrl=https%3A%2F%2Fmms.pinduoduo.com%2Fmms-chat%2Foverview%2Fmerchant", label: "拼多多", domainHint: "mms.pinduoduo.com" },
     douyin: { url: "https://fxg.jinritemai.com", label: "抖店", domainHint: "fxg.jinritemai.com" },

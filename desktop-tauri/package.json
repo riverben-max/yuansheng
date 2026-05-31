@@ -1,6 +1,6 @@
 {
   "name": "yuansheng-data-assistant-tauri",
-  "version": "1.1.8",
+  "version": "1.1.9",
   "private": true,
   "type": "module",
   "scripts": {
@@ -27,4 +27,5 @@
     "vite": "^6.4.1"
   }
 }
+
 

@@ -21,7 +21,9 @@ PLATFORM_COOKIE_DOMAINS: Dict[str, List[str]] = {
 # 各平台登录页 URL（用于「在已运行的浏览器里新开标签页跳转登录」这种轻量场景）
 PLATFORM_LOGIN_URLS: Dict[str, str] = {
     "douyin": "https://fxg.jinritemai.com",
-    "qn": "https://loginmyseller.taobao.com/",
+    # 千牛：用 myseller 工作台首页而非登录页。未登录会自动跳 loginmyseller，登录后回到首页，
+    # 首页加载时会调用 mtop 接口，触发 _m_h5_tk 颁发（千牛采集必需字段）。
+    "qn": "https://myseller.taobao.com/home.htm/QnworkbenchHome/",
     "jd": "https://passport.jd.com/new/login.aspx?ReturnUrl=http%3A%2F%2Fkf.jd.com%2F",
     "pdd": "https://mms.pinduoduo.com/login/?redirectUrl=https%3A%2F%2Fmms.pinduoduo.com%2Fmms-chat%2Foverview%2Fmerchant",
 }

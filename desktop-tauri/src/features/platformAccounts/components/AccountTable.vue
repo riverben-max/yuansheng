@@ -7,6 +7,7 @@
       </div>
       <div class="toolbar">
         <el-button @click="$emit('create')">新增登录账户</el-button>
+        <el-button :disabled="!selectedAccount" type="danger" plain @click="$emit('delete', selectedAccount)">删除选中账户</el-button>
         <el-button :disabled="!selectedAccount || selectedAccount.enabled === false || captureBusy" type="success" @click="$emit('capture', selectedAccount)">采集选中账号</el-button>
       </div>
     </div>
@@ -94,6 +95,7 @@ const emit = defineEmits([
   "update:activePlatformFilter",
   "update:selectedAccount",
   "create",
+  "delete",
   "capture",
   "grab-browser",
 ]);
