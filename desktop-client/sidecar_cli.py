@@ -971,38 +971,46 @@ class SidecarApp:
             _get_running_360_exe,
             _resolve_browser_exe,
             _port_is_open,
+            debug_profile_dir,
         )
 
         port = int(payload.get("port") or BROWSER_DEBUG_PORT)
         startup_url = str(payload.get("startupUrl") or "https://fxg.jinritemai.com").strip() or "https://fxg.jinritemai.com"
         platform_label = str(payload.get("platformLabel") or "").strip() or "对应平台"
+        profile_dir = debug_profile_dir()
 
         # 1. 拿到 360 exe 路径：先看运行中的进程，再走标准探测
         exe = _get_running_360_exe() or _resolve_browser_exe()
         if not exe:
             raise ValueError("找不到 360 极速浏览器，请先在桌面打开一次 360，再点「浏览器」按钮。")
 
-        # 2. 关闭所有 360 进程
-        self.log("正在关闭浏览器以接管登录…")
-        for image_name in ("360ChromeX.exe", "360Chrome.exe"):
+        # 2. 调试端口已就绪（采集专用浏览器已在运行）→ 直接复用，绝不反复强杀。
+        #    强杀固定 profile 会让 360 下次启动弹"崩溃恢复"对话框，阻断采集流程。
+        if _port_is_open(port):
+            self.log(f"采集专用浏览器已在运行（端口 {port}），复用并打开{platform_label}页面。")
             try:
-                subprocess.run(
-                    ["taskkill", "/F", "/IM", image_name, "/T"],
-                    capture_output=True,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
-                )
+                from browser_debug_setup import open_url_in_existing_browser
+                open_url_in_existing_browser(port, startup_url)
             except Exception as exc:
-                self.log(f"关闭 {image_name} 时遇到异常（忽略继续）：{exc}")
-        # 等待端口释放 + 进程退出
-        for _ in range(20):  # 最多等 4 秒
-            if not _port_is_open(port):
-                break
-            _time.sleep(0.2)
+                self.log(f"打开{platform_label}页面失败（忽略）：{exc}")
+            return self.response({
+                "launched": True,
+                "exePath": exe,
+                "port": port,
+                "portReady": True,
+                "startupUrl": startup_url,
+                "reused": True,
+            })
 
-        # 3. 用调试端口启动新进程
+        # 3. 端口未就绪 → 用独立固定 profile + 调试端口启动。
+        #    ⚠️ 必须用独立 profile：360 带调试端口会隔离日常 profile（读不到日常登录态）。
+        #    客户在专用窗口登录一次，登录态持久存于此目录，之后复用免登录。
+        #    只用最小参数（额外参数会暴露自动化特征触发淘宝手机验证，见 commit 3856e14）；
+        #    崩溃恢复弹窗已通过"不强杀"从根上避免。subprocess 列表传参，路径含空格安全。
+        self.log(f"正在启动采集专用浏览器（端口 {port}）…")
         try:
             subprocess.Popen(
-                [exe, f"--remote-debugging-port={port}", startup_url],
+                [exe, f"--remote-debugging-port={port}", f"--user-data-dir={profile_dir}", startup_url],
                 creationflags=(
                     getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
                     | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
@@ -1023,7 +1031,7 @@ class SidecarApp:
                 break
             _time.sleep(0.2)
 
-        self.log(f"浏览器已用调试模式重新启动（端口 {port}）。请在弹出的浏览器里登录{platform_label}后台后，再点一次「浏览器」按钮。")
+        self.log(f"采集专用浏览器已启动（端口 {port}）。请在弹出的浏览器里登录{platform_label}后台后，再点一次「浏览器」按钮。")
         return self.response({
             "launched": True,
             "exePath": exe,

@@ -36,9 +36,13 @@
    - `_log_qn_cookie_fields(c, tag)`：诊断日志，客户反馈问题时第一时间看这条。
    - 不完整时自动跳 myseller 工作台 → `time.sleep(5)` → 重抓 → 仍不完整则返回 `cookieSaved=False, loginPageOpened=True` + 再开一次工作台引导客户登录。
 
-3. **`desktop-client/sidecar_cli.py::relaunch_browser_for_debug`**
-   - 杀 360 进程 + 用调试端口重启 + 跳指定 `startupUrl`。**不依赖 360 桌面快捷方式**（解决"客户机器没有 360 快捷方式"的场景）。
-   - 接受 `platformLabel` payload，日志和提示文案动态化。
+3. **`desktop-client/sidecar_cli.py::relaunch_browser_for_debug`**（2026-05-31 反复踩坑后定稿，**别再改启动方式**）
+   - 用**独立固定 profile**（`debug_profile_dir()` = `%LOCALAPPDATA%\YuanshengDataAssistant\browser-debug-profile`）+ 调试端口启动"采集专用浏览器"。这是一个跟客户日常 360 分开的独立窗口。
+   - **必须用独立 profile**：360 带 `--remote-debugging-port` 会隔离日常 profile，读不到客户日常登录态（实测用日常 `User Data` 目录启动仍是登录页）。独立 profile 里登录一次 → 持久 → 以后复用免登录。
+   - **端口已开就复用、绝不强杀**：`taskkill /F` 强杀固定 profile 会让 360 下次启动弹"崩溃恢复"对话框阻断流程。所以检测到端口在跑就直接复用 + `open_url_in_existing_browser` 打开页面。
+   - **只用最小启动参数**（`--remote-debugging-port` + `--user-data-dir` + url）：`--disable-session-crashed-bubble` / `--no-first-run` 等额外参数会暴露自动化特征，触发淘宝手机验证（见 commit 3856e14）。
+   - subprocess 列表传参，profile 路径含空格（`User Data`）也安全；不要拼成 shell 字符串。
+   - 接受 `platformLabel` / `startupUrl` payload，提示文案和落地页动态化。
 
 4. **响应字段约定（前端依赖）**
    - `cookieSaved: bool`：cookie 是否保存成功，前端据此显示"导入成功"消息。

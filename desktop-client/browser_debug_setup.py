@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import socket
+import winreg
 from pathlib import Path
 from typing import Any, Dict, List, Mapping
 
@@ -10,6 +11,17 @@ import psutil
 BROWSER_DEBUG_PORT = 9527
 
 BROWSER_EXE_NAMES = {"360chromex.exe", "chrome.exe", "360chrome.exe"}
+
+
+def debug_profile_dir() -> str:
+    """采集专用的独立浏览器数据目录（固定不变）。
+
+    360 带 --remote-debugging-port 启动时会隔离日常 profile（读不到日常登录态），
+    所以必须用一个独立固定目录：客户在这个专用窗口登录一次，登录态持久保存，
+    之后每次复用都免登录。四个平台共用此 profile。
+    """
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    return str(Path(base) / "YuanshengDataAssistant" / "browser-debug-profile")
 
 PLATFORM_COOKIE_DOMAINS: Dict[str, List[str]] = {
     "douyin": ["jinritemai.com", ".douyin.com", ".toutiao.com"],
@@ -116,7 +128,25 @@ def _resolve_browser_exe() -> str:
     running_360 = _get_running_360_exe()
     if running_360:
         return running_360
-    # 2. 通过 shadow_browser 模块查 Chrome 路径
+    # 2. 查 360 注册表（即使装在非标准盘符也能找到，比 Chrome 优先）
+    for exe_name in ("360ChromeX.exe", "360Chrome.exe"):
+        for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            try:
+                with winreg.OpenKey(hive, rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe_name}") as key:
+                    val, _ = winreg.QueryValueEx(key, None)
+                    if val and Path(val).exists():
+                        return str(val)
+            except OSError:
+                pass
+    # 3. 360 标准安装路径
+    for candidate in (
+        os.path.expandvars(r"%LOCALAPPDATA%\360ChromeX\Chrome\Application\360ChromeX.exe"),
+        os.path.expandvars(r"%PROGRAMFILES%\360\360ChromeX\Chrome\Application\360ChromeX.exe"),
+        os.path.expandvars(r"%PROGRAMFILES(X86)%\360\360ChromeX\Chrome\Application\360ChromeX.exe"),
+    ):
+        if candidate and Path(candidate).exists():
+            return candidate
+    # 4. 实在找不到 360，才回退到 Chrome（resolve_chrome_path 含 Google Chrome）
     try:
         from shadow_browser import resolve_chrome_path
         path = resolve_chrome_path()
@@ -124,17 +154,6 @@ def _resolve_browser_exe() -> str:
             return path
     except Exception:
         pass
-    # 3. 候选标准位置兜底
-    candidates = [
-        os.path.expandvars(r"%LOCALAPPDATA%\360ChromeX\Chrome\Application\360ChromeX.exe"),
-        os.path.expandvars(r"%PROGRAMFILES%\360\360ChromeX\Chrome\Application\360ChromeX.exe"),
-        os.path.expandvars(r"%PROGRAMFILES(X86)%\360\360ChromeX\Chrome\Application\360ChromeX.exe"),
-        os.path.expandvars(r"%PROGRAMFILES%\Google\Chrome\Application\chrome.exe"),
-        os.path.expandvars(r"%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe"),
-    ]
-    for candidate in candidates:
-        if candidate and Path(candidate).exists():
-            return candidate
     return ""
 
 
