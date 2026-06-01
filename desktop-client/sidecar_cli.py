@@ -59,7 +59,7 @@ from startup_manager import ensure_autostart, is_autostart_enabled
 from upload_client import UploadClientError, upload_employee_payload, ensure_default_auth_config
 
 APP_NAME = "远盛数据助手"
-SIDECAR_VERSION = "1.1.9"
+SIDECAR_VERSION = "1.1.10"
 DEFAULT_SERVER_URL = "http://120.27.22.50"
 DEFAULT_UPDATE_CHECK_URL = "http://120.27.22.50/desktop/update.json"
 DIRECT_API_TEMPLATE_NAME = "direct_api_capture.template.json"
@@ -1742,5 +1742,6 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
 
 
