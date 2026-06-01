@@ -327,6 +327,11 @@ fn spawn_sidecar(
 ) -> Result<std::process::Child, String> {
     command_builder.env("PYTHONUTF8", "1");
     command_builder.env("PYTHONIOENCODING", "utf-8");
+    // 把 Tauri 主程序路径传给 sidecar，让 startup_manager 注册开机自启时
+    // 指向主程序而不是 sidecar.exe（开机只跑 sidecar 没有 UI 是个 bug）
+    if let Ok(main_exe) = env::current_exe() {
+        command_builder.env("YUANSHENG_MAIN_EXE", main_exe);
+    }
     #[cfg(windows)]
     command_builder.creation_flags(CREATE_NO_WINDOW);
     command_builder

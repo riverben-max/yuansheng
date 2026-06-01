@@ -379,7 +379,7 @@ class SidecarAccountTests(unittest.TestCase):
             opened_configs.append(dict(config))
             return SimpleNamespace(
                 page=None,
-                chrome_path=r"C:\Chrome\chrome.exe",
+                chrome_path=r"C:\360\360ChromeX.exe",
                 profile_dir=str(config["shadowChromeProfileDir"]),
                 port=45678,
                 pid=1234,
@@ -445,7 +445,7 @@ class SidecarAccountTests(unittest.TestCase):
             opened_configs.append(dict(config))
             return SimpleNamespace(
                 page=None,
-                chrome_path=r"C:\Chrome\chrome.exe",
+                chrome_path=r"C:\360\360ChromeX.exe",
                 profile_dir=str(config["shadowChromeProfileDir"]),
                 port=45678,
                 pid=1234,
@@ -484,7 +484,7 @@ class SidecarAccountTests(unittest.TestCase):
             opened_configs.append(dict(config))
             return SimpleNamespace(
                 page=None,
-                chrome_path=r"C:\Chrome\chrome.exe",
+                chrome_path=r"C:\360\360ChromeX.exe",
                 profile_dir=str(config["shadowChromeProfileDir"]),
                 port=45678,
                 pid=1234,
@@ -566,7 +566,7 @@ class SidecarAccountTests(unittest.TestCase):
                 pid = 2000 + len(opened_configs)
             return SimpleNamespace(
                 page=None,
-                chrome_path=r"C:\Chrome\chrome.exe",
+                chrome_path=r"C:\360\360ChromeX.exe",
                 profile_dir=str(config["shadowChromeProfileDir"]),
                 port=45678,
                 pid=pid,
@@ -623,7 +623,7 @@ class SidecarAccountTests(unittest.TestCase):
             pid = 3000 + len(opened_configs)
             return SimpleNamespace(
                 page=None,
-                chrome_path=r"C:\Chrome\chrome.exe",
+                chrome_path=r"C:\360\360ChromeX.exe",
                 profile_dir=str(config["shadowChromeProfileDir"]),
                 port=45678,
                 pid=pid,
@@ -674,7 +674,7 @@ class SidecarAccountTests(unittest.TestCase):
                 pid = 4000 + len(opened_configs)
             return SimpleNamespace(
                 page=None,
-                chrome_path=r"C:\Chrome\chrome.exe",
+                chrome_path=r"C:\360\360ChromeX.exe",
                 profile_dir=str(config["shadowChromeProfileDir"]),
                 port=45678,
                 pid=pid,
@@ -737,7 +737,7 @@ class SidecarAccountTests(unittest.TestCase):
             opened_configs.append(dict(config))
             return SimpleNamespace(
                 page=None,
-                chrome_path=r"C:\Chrome\chrome.exe",
+                chrome_path=r"C:\360\360ChromeX.exe",
                 profile_dir=str(config["shadowChromeProfileDir"]),
                 port=45678,
                 pid=5001,
@@ -1729,6 +1729,28 @@ class SidecarCaptureTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertFalse(result["data"]["results"][0]["ok"])
         self.assertEqual(result["data"]["results"][0]["message"], "采集失败")
+
+    def test_capture_all_marks_lastRunAt_even_on_login_required(self) -> None:
+        """定时采集触发 LoginRequiredError 时也要更新 lastRunAt，避免前端每分钟重试。"""
+        original = sidecar_cli.capture_enabled_accounts
+        sidecar_cli.capture_enabled_accounts = lambda *a, **kw: (_ for _ in ()).throw(
+            sidecar_cli.DirectApiLoginRequiredError("Cookie 已过期")
+        )
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                app = SidecarApp(data_dir=Path(temp_dir), emit=lambda _event: None)
+                state = app.load_state()
+                state["loginAccounts"][0]["cookieProtected"] = "dpapi:v1:encrypted-cookie"
+                app.save_state(state)
+
+                with self.assertRaises(RuntimeError):
+                    app.capture_all({"reason": "定时采集"})
+
+                reloaded = app.load_state()
+        finally:
+            sidecar_cli.capture_enabled_accounts = original
+
+        self.assertTrue(reloaded["lastRunAt"], "lastRunAt 应该被设置，避免定时器每分钟重试")
 
     def test_upload_failure_message_redacts_sensitive_text(self) -> None:
         state = {"serverUrl": "http://example.com", "uploadHistory": {}}

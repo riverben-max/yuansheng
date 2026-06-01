@@ -64,27 +64,40 @@ def default_shadow_profile_dir() -> Path:
 
 
 def resolve_chrome_path(config: Mapping[str, Any] | None = None) -> str:
+    """解析"采集专用浏览器"的可执行路径。
+
+    项目统一使用 360 极速浏览器（客户场景下普遍只装 360；让软件混用 Chrome 会
+    导致维护两套路径/profile 行为、客户机和开发机表现不一致）。这里**只接受 360**：
+    - 旧 state 里残留 Google Chrome 路径会被忽略，回退到注册表/标准路径查找 360。
+    - 找不到 360 时抛 ChromeNotFoundError（类名保留兼容历史）。
+    """
     configured = str((config or {}).get("chromePath") or "").strip()
-    if configured and Path(configured).exists():
+    if configured and Path(configured).exists() and _is_360_executable(configured):
         return configured
 
     for key_path in (
-        r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
-        r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
         r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\360ChromeX.exe",
+        r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\360ChromeX.exe",
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\360Chrome.exe",
+        r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\360Chrome.exe",
     ):
         registry_path = _read_registry_default(winreg.HKEY_CURRENT_USER, key_path)
-        if registry_path and Path(registry_path).exists():
+        if registry_path and Path(registry_path).exists() and _is_360_executable(registry_path):
             return registry_path
         registry_path = _read_registry_default(winreg.HKEY_LOCAL_MACHINE, key_path)
-        if registry_path and Path(registry_path).exists():
+        if registry_path and Path(registry_path).exists() and _is_360_executable(registry_path):
             return registry_path
 
     for candidate in _common_chrome_paths():
         if candidate.exists():
             return str(candidate)
 
-    raise ChromeNotFoundError("未找到 Chrome。请先安装 Chrome，或在配置中指定 chromePath。")
+    raise ChromeNotFoundError("未找到 360 极速浏览器。请先安装 360，或在配置中指定 chromePath 指向 360。")
+
+
+def _is_360_executable(exe_path: str) -> bool:
+    name = Path(exe_path).name.lower()
+    return name in {"360chromex.exe", "360chrome.exe"}
 
 
 def attach_or_recover_shadow_browser(
@@ -681,11 +694,11 @@ def _read_registry_default(root: int, sub_key: str) -> str:
 
 def _common_chrome_paths() -> list[Path]:
     candidates = [
-        Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Google" / "Chrome" / "Application" / "chrome.exe",
-        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Google" / "Chrome" / "Application" / "chrome.exe",
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "360" / "360ChromeX" / "Chrome" / "Application" / "360ChromeX.exe",
+        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "360" / "360ChromeX" / "Chrome" / "Application" / "360ChromeX.exe",
     ]
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
-        candidates.append(Path(local_app_data) / "Google" / "Chrome" / "Application" / "chrome.exe")
         candidates.append(Path(local_app_data) / "360ChromeX" / "Chrome" / "Application" / "360ChromeX.exe")
+        candidates.append(Path(local_app_data) / "360Chrome" / "Chrome" / "Application" / "360Chrome.exe")
     return candidates

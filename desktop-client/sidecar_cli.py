@@ -767,10 +767,26 @@ class SidecarApp:
             return self.response(result)
         except (LoginRequiredError, DirectApiLoginRequiredError) as exc:
             self.emit(event("status", status="请先登录", danger=True))
+            self._mark_run_completed_silently()
             raise RuntimeError(sanitize_sensitive_text(exc)) from exc
         except Exception as exc:
             self.emit(event("status", status="采集失败", danger=True))
+            self._mark_run_completed_silently()
             raise RuntimeError(sanitize_sensitive_text(exc)) from exc
+
+    def _mark_run_completed_silently(self) -> None:
+        """采集失败时也写一次 lastRunAt，避免前端定时器每分钟重试。
+
+        异常情况下尽力更新 state，本身的 IO 错误不应再覆盖外层异常，所以这里
+        吞掉自己的异常。
+        """
+        try:
+            with self.state_file_lock():
+                state = self.load_state()
+                state["lastRunAt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                self.save_state(state)
+        except Exception:
+            pass
 
     def capture_account(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
         with self.state_file_lock():

@@ -9,7 +9,7 @@ import psutil
 
 BROWSER_DEBUG_PORT = 9527
 
-BROWSER_EXE_NAMES = {"360chromex.exe", "chrome.exe", "360chrome.exe"}
+BROWSER_EXE_NAMES = {"360chromex.exe", "360chrome.exe"}
 
 PLATFORM_COOKIE_DOMAINS: Dict[str, List[str]] = {
     "douyin": ["jinritemai.com", ".douyin.com", ".toutiao.com"],
@@ -112,11 +112,12 @@ def _create_shortcut(lnk_path: str, target: str, arguments: str, working_dir: st
 
 
 def _resolve_browser_exe() -> str:
+    """解析"采集专用浏览器"的可执行路径（统一 360，不再 fallback 到 Google Chrome）。"""
     # 1. 优先使用正在运行的 360 进程的实际 exe 路径（客户可能装到非标准位置）
     running_360 = _get_running_360_exe()
     if running_360:
         return running_360
-    # 2. 通过 shadow_browser 模块查 Chrome 路径
+    # 2. 通过 shadow_browser 模块的 resolve_chrome_path（已经只查 360）
     try:
         from shadow_browser import resolve_chrome_path
         path = resolve_chrome_path()
@@ -124,13 +125,12 @@ def _resolve_browser_exe() -> str:
             return path
     except Exception:
         pass
-    # 3. 候选标准位置兜底
+    # 3. 候选标准位置兜底（只列 360）
     candidates = [
         os.path.expandvars(r"%LOCALAPPDATA%\360ChromeX\Chrome\Application\360ChromeX.exe"),
         os.path.expandvars(r"%PROGRAMFILES%\360\360ChromeX\Chrome\Application\360ChromeX.exe"),
         os.path.expandvars(r"%PROGRAMFILES(X86)%\360\360ChromeX\Chrome\Application\360ChromeX.exe"),
-        os.path.expandvars(r"%PROGRAMFILES%\Google\Chrome\Application\chrome.exe"),
-        os.path.expandvars(r"%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%LOCALAPPDATA%\360Chrome\Chrome\Application\360Chrome.exe"),
     ]
     for candidate in candidates:
         if candidate and Path(candidate).exists():

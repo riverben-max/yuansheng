@@ -91,7 +91,7 @@ class TestFindBrowserShortcuts(unittest.TestCase):
         mock_dirs.return_value = [tmp]
         mock_read.return_value = {
             "path": str(lnk_file),
-            "target": r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            "target": r"C:\360\360ChromeX.exe",
             "arguments": "",
             "working_dir": "",
         }
@@ -107,7 +107,7 @@ class TestFindBrowserShortcuts(unittest.TestCase):
         mock_dirs.return_value = [tmp]
         mock_read.return_value = {
             "path": str(lnk_file),
-            "target": r"C:\chrome.exe",
+            "target": r"C:\360\360ChromeX.exe",
             "arguments": "--remote-debugging-port=9527",
             "working_dir": "",
         }
@@ -122,7 +122,7 @@ class TestAddDebugPortToShortcut(unittest.TestCase):
     def test_adds_port_when_missing(self, mock_read, mock_write) -> None:
         mock_read.return_value = {
             "path": r"C:\test.lnk",
-            "target": r"C:\chrome.exe",
+            "target": r"C:\360\360ChromeX.exe",
             "arguments": "--no-first-run",
             "working_dir": "",
         }
@@ -136,7 +136,7 @@ class TestAddDebugPortToShortcut(unittest.TestCase):
     def test_skips_when_already_present(self, mock_read, mock_write) -> None:
         mock_read.return_value = {
             "path": r"C:\test.lnk",
-            "target": r"C:\chrome.exe",
+            "target": r"C:\360\360ChromeX.exe",
             "arguments": "--no-first-run --remote-debugging-port=9527",
             "working_dir": "",
         }
@@ -149,7 +149,7 @@ class TestAddDebugPortToShortcut(unittest.TestCase):
     def test_replaces_different_port(self, mock_read, mock_write) -> None:
         mock_read.return_value = {
             "path": r"C:\test.lnk",
-            "target": r"C:\chrome.exe",
+            "target": r"C:\360\360ChromeX.exe",
             "arguments": "--remote-debugging-port=9222",
             "working_dir": "",
         }

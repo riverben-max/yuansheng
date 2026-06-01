@@ -22,9 +22,30 @@ class ShadowBrowserTests(unittest.TestCase):
             profile_dir = default_shadow_profile_dir()
         self.assertEqual(profile_dir, Path(r"C:\Users\Test\AppData\Local\YuanshengDataAssistant\shadow-chrome"))
 
+    def test_resolve_chrome_path_ignores_chrome_executable_in_configured(self) -> None:
+        """旧 state 里残留 Google Chrome 路径要被忽略，回退查找 360。"""
+        from shadow_browser import resolve_chrome_path
+        # configured 是 Chrome → 应该忽略 → 因为 mock 让 fallback 也找不到 360 → 抛错
+        with patch("shadow_browser.Path.exists", return_value=True), \
+             patch("shadow_browser._read_registry_default", return_value=""), \
+             patch("shadow_browser._common_chrome_paths", return_value=[]):
+            try:
+                # configured 是 chrome.exe，其余路径都没找到 → 抛错说明 chrome 被忽略了
+                resolve_chrome_path({"chromePath": r"C:\Program Files\Google\Chrome\Application\chrome.exe"})
+                self.fail("应该抛 ChromeNotFoundError，因为 chrome.exe 不被接受")
+            except shadow_browser.ChromeNotFoundError:
+                pass  # 预期行为
+
+    def test_resolve_chrome_path_accepts_360_executable_in_configured(self) -> None:
+        """configured 是 360ChromeX.exe → 直接采纳。"""
+        from shadow_browser import resolve_chrome_path
+        with patch("shadow_browser.Path.exists", return_value=True):
+            result = resolve_chrome_path({"chromePath": r"C:\360\360ChromeX.exe"})
+        self.assertEqual(result, r"C:\360\360ChromeX.exe")
+
     def test_build_shadow_launch_command_contains_required_flags(self) -> None:
         command = build_shadow_launch_command(
-            chrome_path=r"C:\Chrome\chrome.exe",
+            chrome_path=r"C:\360\360ChromeX.exe",
             port=9333,
             profile_dir=Path(r"D:\shadow-profile"),
             visible=False,
@@ -37,7 +58,7 @@ class ShadowBrowserTests(unittest.TestCase):
 
     def test_build_shadow_launch_command_allows_auto_debug_port(self) -> None:
         command = build_shadow_launch_command(
-            chrome_path=r"C:\Chrome\chrome.exe",
+            chrome_path=r"C:\360\360ChromeX.exe",
             port=0,
             profile_dir=Path(r"D:\shadow-profile"),
             visible=True,
@@ -88,7 +109,7 @@ class ShadowBrowserTests(unittest.TestCase):
 
     def test_build_visible_shadow_launch_command_resets_window_position(self) -> None:
         command = build_shadow_launch_command(
-            chrome_path=r"C:\Chrome\chrome.exe",
+            chrome_path=r"C:\360\360ChromeX.exe",
             port=9333,
             profile_dir=Path(r"D:\shadow-profile"),
             visible=True,
@@ -98,7 +119,7 @@ class ShadowBrowserTests(unittest.TestCase):
 
     def test_cmdline_match_primarily_uses_profile_dir(self) -> None:
         cmdline = [
-            r"C:\Chrome\chrome.exe",
+            r"C:\360\360ChromeX.exe",
             "--remote-debugging-port=45678",
             "--user-data-dir=D:\\shadow-profile",
         ]
@@ -108,7 +129,7 @@ class ShadowBrowserTests(unittest.TestCase):
 
     def test_cmdline_match_identifies_drission_temp_browser_for_port(self) -> None:
         cmdline = [
-            r"C:\Chrome\chrome.exe",
+            r"C:\360\360ChromeX.exe",
             "--remote-debugging-port=9222",
             r"--user-data-dir=C:\Users\Test\AppData\Local\Temp\DrissionPage\userData\9222",
         ]
@@ -130,7 +151,7 @@ class ShadowBrowserTests(unittest.TestCase):
         matching = FakeProcess(
             1001,
             [
-                r"C:\Chrome\chrome.exe",
+                r"C:\360\360ChromeX.exe",
                 "--remote-debugging-port=9222",
                 r"--user-data-dir=C:\Users\Test\AppData\Local\Temp\DrissionPage\userData\9222",
             ],
@@ -138,7 +159,7 @@ class ShadowBrowserTests(unittest.TestCase):
         other = FakeProcess(
             1002,
             [
-                r"C:\Chrome\chrome.exe",
+                r"C:\360\360ChromeX.exe",
                 "--remote-debugging-port=9223",
                 r"--user-data-dir=C:\Users\Test\AppData\Local\Temp\DrissionPage\userData\9223",
             ],
@@ -184,14 +205,14 @@ class ShadowBrowserTests(unittest.TestCase):
             ),
         ):
             session = shadow_browser._try_attach_session(
-                chrome_path=r"C:\Chrome\chrome.exe",
+                chrome_path=r"C:\360\360ChromeX.exe",
                 profile_dir=Path(r"D:\shadow-profile"),
                 port=9222,
                 launched=False,
                 restarted=False,
             )
 
-        self.assertEqual(calls["paths"]["browser_path"], r"C:\Chrome\chrome.exe")
+        self.assertEqual(calls["paths"]["browser_path"], r"C:\360\360ChromeX.exe")
         self.assertEqual(calls["paths"]["local_port"], 9222)
         self.assertEqual(calls["paths"]["user_data_path"], r"D:\shadow-profile")
         self.assertTrue(calls["existing_only"])
@@ -206,7 +227,7 @@ class ShadowBrowserTests(unittest.TestCase):
             return SimpleNamespace(pid=4567)
 
         with (
-            patch("shadow_browser.resolve_chrome_path", return_value=r"C:\Chrome\chrome.exe"),
+            patch("shadow_browser.resolve_chrome_path", return_value=r"C:\360\360ChromeX.exe"),
             patch("shadow_browser._port_is_open", return_value=False),
             patch("shadow_browser._launch_shadow_browser", side_effect=fake_launch),
             patch("shadow_browser._wait_for_attach", side_effect=AssertionError("should not attach")),
@@ -236,7 +257,7 @@ class ShadowBrowserTests(unittest.TestCase):
             return SimpleNamespace(pid=4567)
 
         with (
-            patch("shadow_browser.resolve_chrome_path", return_value=r"C:\Chrome\chrome.exe"),
+            patch("shadow_browser.resolve_chrome_path", return_value=r"C:\360\360ChromeX.exe"),
             patch("shadow_browser._port_is_open", return_value=False),
             patch("shadow_browser._launch_shadow_browser", side_effect=fake_launch),
             patch("shadow_browser._wait_for_attach", side_effect=AssertionError("should not attach")),
@@ -266,7 +287,7 @@ class ShadowBrowserTests(unittest.TestCase):
             return SimpleNamespace(pid=4567)
 
         with (
-            patch("shadow_browser.resolve_chrome_path", return_value=r"C:\Chrome\chrome.exe"),
+            patch("shadow_browser.resolve_chrome_path", return_value=r"C:\360\360ChromeX.exe"),
             patch("shadow_browser._launch_shadow_browser", side_effect=fake_launch),
             patch("shadow_browser._wait_for_attach", side_effect=AssertionError("should not attach")),
         ):
@@ -287,7 +308,7 @@ class ShadowBrowserTests(unittest.TestCase):
         shutdown_calls = []
 
         with (
-            patch("shadow_browser.resolve_chrome_path", return_value=r"C:\Chrome\chrome.exe"),
+            patch("shadow_browser.resolve_chrome_path", return_value=r"C:\360\360ChromeX.exe"),
             patch("shadow_browser._launch_shadow_browser", return_value=SimpleNamespace(pid=4567)),
             patch("shadow_browser._wait_for_devtools_active_port", return_value=None),
             patch("shadow_browser._kill_shadow_processes", side_effect=lambda profile, port, log: shutdown_calls.append((profile, port)) or 1),

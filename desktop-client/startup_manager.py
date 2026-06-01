@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import sys
 import winreg
@@ -47,11 +48,15 @@ def build_startup_command(
     script_path: str | None = None,
     frozen: bool | None = None,
 ) -> str:
-    runtime_executable = str(executable or sys.executable)
+    # frozen 模式优先用 YUANSHENG_MAIN_EXE（由 Tauri 主程序在 spawn sidecar 时注入），
+    # 这样开机自启写到注册表的命令是 Tauri 主程序而不是 sidecar.exe。
+    # sidecar.exe 自启没 UI、前端定时器不跑、客户感知不到软件已启动。
     is_frozen = getattr(sys, "frozen", False) if frozen is None else frozen
     if is_frozen:
-        return f'"{runtime_executable}"'
+        main_exe = (executable or os.environ.get("YUANSHENG_MAIN_EXE") or sys.executable)
+        return f'"{main_exe}"'
 
+    runtime_executable = str(executable or sys.executable)
     root_dir = Path(base_dir) if base_dir is not None else Path(__file__).resolve().parent
     entry_script = script_path or str(root_dir / "main.py")
     executable_path = Path(runtime_executable)
