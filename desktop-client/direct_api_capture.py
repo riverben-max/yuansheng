@@ -266,21 +266,57 @@ def _materialize_protected_cookies(config: Dict[str, Any]) -> None:
                 item["cookie"] = _unprotect_cookie(protected_item_cookie)
 
 
+def _account_cookie_user_marker(summary: Mapping[str, Any]) -> bool:
+    return bool(
+        summary.get("hasSn")
+        or summary.get("hasUnb")
+        or summary.get("hasTbToken")
+        or summary.get("hasTracknick")
+    )
+
+
 def _load_account_cookie(state: Mapping[str, Any]) -> str:
     protected_cookie = str(state.get(PROTECTED_COOKIE_KEY) or "").strip()
     if not protected_cookie:
         raise DirectApiLoginRequiredError("账号未保存 Cookie，需要重新登录。")
     cookie = _unprotect_cookie_for_login(protected_cookie)
     summary = summarize_cookie(cookie)
-    has_user_marker = bool(
-        summary.get("hasSn")
-        or summary.get("hasUnb")
-        or summary.get("hasTbToken")
-        or summary.get("hasTracknick")
-    )
-    if not summary.get("hasMtopToken") or not has_user_marker or summary.get("mtopExpired") is True:
+    # _m_h5_tk 过期不再直接拒绝：请求时会用响应下发的新令牌自动续期。
+    # 仅在缺少 _m_h5_tk（无法生成首个 sign）或缺少核心登录态时才要求重新登录。
+    if not summary.get("hasMtopToken") or not _account_cookie_user_marker(summary):
         raise DirectApiLoginRequiredError("账号 Cookie 已失效，需要重新登录。")
     return cookie
+
+
+def _load_account_cookie_for_refresh(state: Mapping[str, Any]) -> str:
+    protected_cookie = str(state.get(PROTECTED_COOKIE_KEY) or "").strip()
+    if not protected_cookie:
+        raise DirectApiLoginRequiredError("账号未保存 Cookie，需要重新登录。")
+    cookie = _unprotect_cookie_for_login(protected_cookie)
+    if not _account_cookie_user_marker(summarize_cookie(cookie)):
+        raise DirectApiLoginRequiredError("账号 Cookie 缺少核心登录态，需要重新登录。")
+    return cookie
+
+
+def refresh_account_mtop_cookie(
+    state: Mapping[str, Any],
+    log: Callable[[str], None] | None = None,
+    config_path: Path | None = None,
+    client: Any = None,
+) -> str:
+    """用账号核心 Cookie 向 mtop 发一次请求，从响应 Set-Cookie 取新 _m_h5_tk，返回续期后的完整 Cookie。
+
+    纯 HTTP，无需打开浏览器。拿不到新令牌时原样返回，由后续采集判定会话是否真失效。
+    """
+    cookie = _load_account_cookie_for_refresh(state)
+    resolved_config_path = config_path or _resolve_config_path_from_state(state)
+    config = load_direct_api_config_with_cookie(resolved_config_path, cookie)
+    request_config = dict(_collect_request_configs(config)[0])
+    response, _ = _request_and_parse(request_config, client or httpx, log)
+    tokens = _extract_set_cookie_tokens(response)
+    if log is not None and tokens:
+        log("千牛 _m_h5_tk 已通过 HTTP 续期。")
+    return _merge_cookie_tokens(cookie, tokens)
 
 
 def _unprotect_cookie_for_login(protected_cookie: str) -> str:
@@ -370,12 +406,33 @@ def summarize_response_shape(raw_data: Any) -> str:
     return f"ret={ret_text}，根节点={root_keys}，data.data.data行数={row_count}"
 
 
+_TOKEN_ERROR_MARKERS = ("TOKEN_EMPTY", "TOKEN_EXPIRED", "TOKEN_EXOIRED")
+
+
 def fetch_direct_api_data(config: Mapping[str, Any], client: Any = None, log: Callable[[str], None] | None = None) -> Any:
+    request_client = client or httpx
+    working = dict(config)
+    response, parsed = _request_and_parse(working, request_client, log)
+
+    # _m_h5_tk 只是短命防刷令牌：收到 token 类错误时，淘宝会在响应 Set-Cookie 里下发新令牌，
+    # 取出后重算 sign 自动重试一次，无需重新登录或打开浏览器。
+    if _is_token_error(_extract_ret_text(parsed)):
+        refreshed = _merge_cookie_tokens(str(working.get("cookie") or ""), _extract_set_cookie_tokens(response))
+        if refreshed and refreshed != working.get("cookie"):
+            if log is not None:
+                log("接口直采：_m_h5_tk 已失效，使用响应下发的新令牌自动续期并重试。")
+            working["cookie"] = refreshed
+            response, parsed = _request_and_parse(working, request_client, log)
+
+    _raise_for_mtop_error(parsed)
+    return parsed
+
+
+def _request_and_parse(config: Mapping[str, Any], request_client: Any, log: Callable[[str], None] | None) -> tuple[Any, Any]:
     method = str(config.get("method") or "GET").upper()
     raw_params = config.get("params") if isinstance(config.get("params"), dict) else {}
     params = _prepare_request_params(config, raw_params)
     body = config.get("body") if isinstance(config.get("body"), dict) else {}
-    request_client = client or httpx
 
     headers = _build_headers(config)
     request_kwargs: Dict[str, Any] = {
@@ -406,18 +463,56 @@ def fetch_direct_api_data(config: Mapping[str, Any], client: Any = None, log: Ca
 
     text = str(getattr(response, "text", "") or "").strip()
     parsed = parse_json_text(text)
-    if parsed is not None:
-        _log_response_diagnostics(parsed, log)
-        _raise_for_mtop_error(parsed)
-        return parsed
+    if parsed is None:
+        try:
+            parsed = response.json()
+        except Exception as exc:
+            raise DirectApiCaptureError("接口直采响应不是可解析的 JSON/JSONP。") from exc
+    _log_response_diagnostics(parsed, log)
+    return response, parsed
 
-    try:
-        parsed_json = response.json()
-    except Exception as exc:
-        raise DirectApiCaptureError("接口直采响应不是可解析的 JSON/JSONP。") from exc
-    _log_response_diagnostics(parsed_json, log)
-    _raise_for_mtop_error(parsed_json)
-    return parsed_json
+
+def _is_token_error(ret_text: str) -> bool:
+    upper = str(ret_text or "").upper()
+    return any(marker in upper for marker in _TOKEN_ERROR_MARKERS)
+
+
+def _extract_set_cookie_tokens(response: Any) -> Dict[str, str]:
+    """从响应里取 mtop 续期下发的 _m_h5_tk / _m_h5_tk_enc。"""
+    cookies = getattr(response, "cookies", None)
+    if cookies is None:
+        return {}
+    tokens: Dict[str, str] = {}
+    for name in ("_m_h5_tk", "_m_h5_tk_enc"):
+        try:
+            value = cookies.get(name)
+        except Exception:
+            value = None
+        if value:
+            tokens[name] = str(value)
+    return tokens
+
+
+def _merge_cookie_tokens(cookie: str, tokens: Mapping[str, str]) -> str:
+    if not tokens:
+        return str(cookie or "")
+    parts: list[str] = []
+    seen = set()
+    for part in str(cookie or "").split(";"):
+        name, sep, value = part.strip().partition("=")
+        if not name:
+            continue
+        if name in tokens:
+            parts.append(f"{name}={tokens[name]}")
+            seen.add(name)
+        elif sep:
+            parts.append(f"{name}={value}")
+        else:
+            parts.append(name)
+    for name, value in tokens.items():
+        if name not in seen:
+            parts.append(f"{name}={value}")
+    return "; ".join(parts)
 
 
 def parse_direct_api_payload(raw_data: Any, config: Mapping[str, Any], state: Mapping[str, Any] | None = None) -> Dict[str, Any]:
