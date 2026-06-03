@@ -13,15 +13,18 @@ from direct_api_capture import (
     load_direct_api_config,
     migrate_direct_api_cookie_config,
     parse_direct_api_payload,
+    refresh_account_mtop_cookie,
     summarize_cookie,
     update_direct_api_cookie,
 )
 
 
 class FakeResponse:
-    def __init__(self, status_code: int, text: str):
+    def __init__(self, status_code: int, text: str, cookies: dict | None = None):
         self.status_code = status_code
         self.text = text
+        if cookies is not None:
+            self.cookies = cookies
 
     def json(self):  # noqa: ANN201
         return json.loads(self.text)
@@ -35,6 +38,16 @@ class FakeClient:
     def request(self, method: str, url: str, **kwargs):  # noqa: ANN001, ANN201
         self.calls.append({"method": method, "url": url, "kwargs": kwargs})
         return self.response
+
+
+class SequenceClient:
+    def __init__(self, responses):  # noqa: ANN001
+        self.responses = list(responses)
+        self.calls = []
+
+    def request(self, method: str, url: str, **kwargs):  # noqa: ANN001, ANN201
+        self.calls.append({"method": method, "url": url, "kwargs": kwargs})
+        return self.responses.pop(0)
 
 
 def base_config(**overrides):  # noqa: ANN201
@@ -445,6 +458,108 @@ class DirectApiCaptureTests(unittest.TestCase):
         self.assertTrue(summary["hasSn"])
         self.assertTrue(summary["hasUnb"])
         self.assertTrue(summary["hasTbToken"])
+
+    def test_token_error_auto_refreshes_via_set_cookie_and_retries(self) -> None:
+        success = onequery_payload(
+            {"accountNickWang": {"value": "林志玲"}, "statDate": {"value": "2026-05-08"}, "consultUserCnt": {"value": "7"}}
+        )
+        client = SequenceClient(
+            [
+                FakeResponse(
+                    200,
+                    'mtopjsonp1({"ret":["FAIL_SYS_TOKEN_EXPIRED::令牌过期"],"data":{}});',
+                    cookies={"_m_h5_tk": "newtoken_1777188499080", "_m_h5_tk_enc": "newenc"},
+                ),
+                FakeResponse(200, json.dumps(success, ensure_ascii=False)),
+            ]
+        )
+        config = base_config(
+            cookie="_m_h5_tk=oldtoken_1700000000000; sn=x; unb=1; _tb_token_=tb",
+            params={"appKey": "12574478", "data": json.dumps({"x": 1}, separators=(",", ":"))},
+        )
+
+        parsed = fetch_direct_api_data(config, client=client)
+
+        self.assertEqual(len(client.calls), 2)
+        self.assertIn("oldtoken_1700000000000", client.calls[0]["kwargs"]["headers"]["Cookie"])
+        self.assertIn("newtoken_1777188499080", client.calls[1]["kwargs"]["headers"]["Cookie"])
+        self.assertIn("newenc", client.calls[1]["kwargs"]["headers"]["Cookie"])
+        self.assertNotEqual(client.calls[0]["kwargs"]["params"]["sign"], client.calls[1]["kwargs"]["params"]["sign"])
+        self.assertEqual(parsed, success)
+
+    def test_session_expired_still_requires_relogin_without_retry(self) -> None:
+        client = SequenceClient(
+            [
+                FakeResponse(
+                    200,
+                    'mtopjsonp1({"ret":["FAIL_SYS_SESSION_EXPIRED::Session过期"],"data":{}});',
+                    cookies={"_m_h5_tk": "whatever_1777188499080"},
+                ),
+            ]
+        )
+
+        with self.assertRaises(DirectApiLoginRequiredError):
+            fetch_direct_api_data(base_config(), client=client)
+
+        self.assertEqual(len(client.calls), 1)
+
+    def test_refresh_account_mtop_cookie_merges_new_token_from_set_cookie(self) -> None:
+        config = base_config()
+        config.pop("cookie")
+        client = SequenceClient(
+            [
+                FakeResponse(
+                    200,
+                    'mtopjsonp1({"ret":["FAIL_SYS_TOKEN_EXPIRED::令牌过期"],"data":{}});',
+                    cookies={"_m_h5_tk": "fresh_1777188499080", "_m_h5_tk_enc": "freshenc"},
+                ),
+            ]
+        )
+        account_cookie = "_m_h5_tk=stale_1700000000000; sn=x; unb=1; _tb_token_=tb"
+
+        with (
+            patch.object(Path, "exists", return_value=True),
+            patch.object(Path, "read_text", return_value=json.dumps(config, ensure_ascii=False)),
+            patch("direct_api_capture.unprotect_text", return_value=account_cookie),
+        ):
+            new_cookie = refresh_account_mtop_cookie(
+                {"directApiConfigPath": "direct_api_capture.json", "cookieProtected": "dpapi:v1:enc"},
+                log=lambda _m: None,
+                client=client,
+            )
+
+        self.assertEqual(len(client.calls), 1)
+        self.assertIn("_m_h5_tk=fresh_1777188499080", new_cookie)
+        self.assertIn("_m_h5_tk_enc=freshenc", new_cookie)
+        self.assertIn("unb=1", new_cookie)
+        self.assertNotIn("stale_1700000000000", new_cookie)
+
+    def test_account_cookie_with_expired_token_is_accepted_for_capture(self) -> None:
+        config = base_config()
+        config.pop("cookie")
+        success = onequery_payload(
+            {"accountNickWang": {"value": "林志玲"}, "statDate": {"value": "2026-05-08"}, "consultUserCnt": {"value": "7"}}
+        )
+        client = FakeClient(FakeResponse(200, json.dumps(success, ensure_ascii=False)))
+        account_cookie = "_m_h5_tk=stale_1500000000000; sn=x; unb=1; _tb_token_=tb"
+
+        with (
+            patch.object(Path, "exists", return_value=True),
+            patch.object(Path, "read_text", return_value=json.dumps(config, ensure_ascii=False)),
+            patch("direct_api_capture.unprotect_text", return_value=account_cookie),
+        ):
+            payload = capture_with_direct_api(
+                {
+                    "directApiConfigPath": "direct_api_capture.json",
+                    "accountCookieRequired": True,
+                    "cookieProtected": "dpapi:v1:enc",
+                    "lastKnownLoginAccount": "林志玲",
+                },
+                log=lambda _m: None,
+                client=client,
+            )
+
+        self.assertEqual(payload["subAccount"], "林志玲")
 
 
 if __name__ == "__main__":

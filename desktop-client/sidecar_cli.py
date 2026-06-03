@@ -20,6 +20,7 @@ from direct_api_capture import (
     capture_with_direct_api,
     format_cookie_diagnostics,
     migrate_direct_api_cookie_config,
+    refresh_account_mtop_cookie,
     summarize_cookie,
     update_direct_api_cookie,
 )
@@ -30,7 +31,6 @@ from jd_workload_capture import capture_jd_workload
 from login_accounts import add_login_account, build_account_state, capture_enabled_accounts, ensure_login_accounts
 from pdd_workload_capture import capture_pdd_workload
 from platform_adapters import default_capture_adapters
-from qn_cookie_refresh import QnCookieRefreshError, refresh_qn_cookie
 from platform_config import (
     JD_LOGIN_URL,
     PDD_LOGIN_URL,
@@ -59,7 +59,7 @@ from startup_manager import ensure_autostart, is_autostart_enabled
 from upload_client import UploadClientError, upload_employee_payload, ensure_default_auth_config
 
 APP_NAME = "远盛数据助手"
-SIDECAR_VERSION = "1.1.10"
+SIDECAR_VERSION = "1.1.11"
 DEFAULT_SERVER_URL = "http://120.27.22.50"
 DEFAULT_UPDATE_CHECK_URL = "http://120.27.22.50/desktop/update.json"
 DIRECT_API_TEMPLATE_NAME = "direct_api_capture.template.json"
@@ -239,19 +239,15 @@ class SidecarApp:
         ensure_default_auth_config()
 
     def _qn_capture_with_refresh(self, state: Mapping[str, Any], log: Callable[[str], None]) -> Mapping[str, Any]:
-        """千牛采集：如果 _m_h5_tk 未过期直接采集，否则先刷新再采集。"""
-        if str(state.get("cookieProtected") or "").strip():
-            # 检查现有 _m_h5_tk 是否还在有效期内
-            if not self._qn_token_expired(state):
-                log("千牛 _m_h5_tk 未过期，跳过刷新直接采集。")
-                return self.direct_capture_func(state, log)
+        """千牛采集：_m_h5_tk 过期时用纯 HTTP 续期（无需开浏览器）；续期不成功也直接采集，由接口层判定登录态。"""
+        if str(state.get("cookieProtected") or "").strip() and self._qn_token_expired(state):
             try:
-                new_cookie = refresh_qn_cookie(state, log)
+                new_cookie = refresh_account_mtop_cookie(state, log)
                 from secure_storage import protect_text as _pt
                 state = dict(state)
                 state["cookieProtected"] = _pt(new_cookie)
-            except QnCookieRefreshError as exc:
-                log(f"千牛 Cookie 刷新失败，尝试直接采集：{exc}")
+            except Exception as exc:
+                log(f"千牛 _m_h5_tk HTTP 续期失败，转为直接采集：{exc}")
         return self.direct_capture_func(state, log)
 
     def _qn_token_expired(self, state: Mapping[str, Any]) -> bool:
