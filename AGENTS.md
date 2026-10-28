@@ -17,7 +17,7 @@
 - 不要误改外层副本 `D:\Tools\work_project\desktop-tauri` 或 `D:\Tools\work_project\desktop-client`。
 - 所有文件使用 UTF-8 无 BOM；包含中文的文件保持 LF 换行。
 - 后端由用户在 IntelliJ IDEA 中用 JDK 17 运行；不要自行启动或重启后端服务。
-- 桌面端发版（升版本号、打包、生成 update.json、上传服务器）按 [`docs/release-process.md`](docs/release-process.md) 执行。
+- 桌面端发版（升版本号、打包、生成 update.json、上传服务器）按 [`docs/release-process.md`](docs/release-process.md) 执行。**执行发版前必须先完整读取该文件，不得凭记忆操作。**
 - 千牛「从浏览器导入 Cookie」的完整性校验、自动跳转 myseller 工作台、dev 模式 sidecar 重启注意事项见 [`docs/qn-cookie-handling.md`](docs/qn-cookie-handling.md)。**不要轻易删 `sidecar_cli.py::grab_browser_cookie` 千牛分支里的逻辑。**
 
 ### 「从浏览器导入 Cookie」核心边界（任何后续修改前必读）
