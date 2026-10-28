@@ -1,0 +1,10 @@
+__pycache__/
+build/
+dist/
+data/
+.venv/
+python
+shop_mapping.json
+*.pyc
+*.pyo
+*.spec.bak
